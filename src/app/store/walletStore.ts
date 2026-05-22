@@ -5,7 +5,7 @@ import { constants } from "starknet";
 import type { WalletAccountV5, RpcProvider } from "starknet";
 import type { WalletWithStarknetFeatures } from "@starknet-io/get-starknet-wallet-standard/features";
 
-const SN_SEPOLIA = constants.StarknetChainId.SN_SEPOLIA;
+const SN_MAIN = constants.StarknetChainId.SN_MAIN;
 
 interface WalletState {
   isConnected: boolean;
@@ -39,7 +39,7 @@ export const useWalletStore = create<WalletState>((set) => ({
 
   setConnected: (v) => set({ isConnected: v }),
   setAddress: (v) => set({ address: v }),
-  setChainId: (v) => set({ chainId: v, wrongNetwork: v !== SN_SEPOLIA }),
+  setChainId: (v) => set({ chainId: v, wrongNetwork: v !== SN_MAIN }),
   setWalletAccount: (v) => set({ walletAccount: v }),
   setProvider: (v) => set({ provider: v }),
   setWalletWSF: (v) => set({ walletWSF: v }),

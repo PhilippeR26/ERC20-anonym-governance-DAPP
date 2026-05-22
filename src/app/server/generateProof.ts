@@ -39,24 +39,11 @@ export async function generateProof(
     private_input: { signature },
   });
 
-  // Manual resource bounds — automatic fee estimation is impossible without broadcasting
-  // the tx. Values from 28.testGovernance2Proof.ts with 2× buffer.
-  const gasPrices = await myProvider.getGasPrices();
-  const PRICE_MULT = 2n;
-  const AMOUNT_MULT = 2n;
+  // External proof server requires all resource bounds at zero for virtual transactions.
   const resourceBounds: ResourceBoundsBN = {
-    l2_gas: {
-      max_amount: BigInt("0x279fc0") * AMOUNT_MULT,
-      max_price_per_unit: gasPrices.l2GasPrice * PRICE_MULT,
-    },
-    l1_gas: {
-      max_amount: BigInt("0xbd2a") * AMOUNT_MULT,
-      max_price_per_unit: gasPrices.l1GasPrice * PRICE_MULT,
-    },
-    l1_data_gas: {
-      max_amount: BigInt("0xc0") * AMOUNT_MULT,
-      max_price_per_unit: gasPrices.l1DataGasPrice * PRICE_MULT,
-    },
+    l2_gas: { max_amount: 0n, max_price_per_unit: 0n },
+    l1_gas: { max_amount: 0n, max_price_per_unit: 0n },
+    l1_data_gas: { max_amount: 0n, max_price_per_unit: 0n },
   };
 
   const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds });

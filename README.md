@@ -1,12 +1,12 @@
 # ERC20 Anonymous Governance DApp
 
-A local demo DApp that demonstrates **fully anonymous on-chain voting** via [SNIP-36 — In-Protocol Proof Verification](https://community.starknet.io/t/snip-36-in-protocol-proof-verification/116123) on Starknet Sepolia.
+A demo DApp that demonstrates **fully anonymous on-chain voting** via [SNIP-36 — In-Protocol Proof Verification](https://community.starknet.io/t/snip-36-in-protocol-proof-verification/116123) on Starknet Mainnet.
 
 Voters cast governance votes without revealing their identity or their choice on-chain. The contract only records a nullifier and a vote weight — never who voted nor which side they chose.
 
 ![DApp screenshot](pictures/screenShot.png)
 
-> **Status:** Experimental / research. `GovernorCountingAnonymousComponent` is not audited. For local demo use only.
+> **Status:** Experimental / research. `GovernorCountingAnonymousComponent` is not audited.
 
 ---
 
@@ -16,12 +16,12 @@ Voters cast governance votes without revealing their identity or their choice on
 
 | Requirement | Details |
 |---|---|
-| Starknet wallet | Argent X or Braavos connected to **Starknet Sepolia** |
-| Proof server | Running locally on `http://localhost:3030` — see [secure-voty/proofServer](https://github.com/PhilippeR26/secure-voty/tree/main/proofServer) |
-| Backend account | A Sepolia account address + private key, funded with a small amount of STRK |
+| Starknet wallet | Argent X or Braavos connected to **Starknet Mainnet** |
+| Proof server API key | A SNIP-36 Prover Gateway API key (`PROOF_SERVER_API_KEY`) |
+| Backend account | A Mainnet account address + private key, funded with STRK |
 | Node.js | v20+ |
 
-> The proof server requires a machine with at least **18 GB of RAM** and takes 40–50 seconds per proof. This is a fundamental constraint of SNIP-36 on current hardware.
+> Proof generation runs on the remote SNIP-36 Prover Gateway and takes **40–50 seconds** per proof. No local hardware requirements.
 
 ### Setup
 
@@ -41,22 +41,16 @@ Voters cast governance votes without revealing their identity or their choice on
    NEXT_PUBLIC_TOKEN_ADDRESS=0x...
 
    # Server only — never exposed to the browser
-   RPC_URL=https://starknet-sepolia.g.alchemy.com/...
+   RPC_URL=https://starknet-mainnet.g.alchemy.com/...
    BACKEND_ACCOUNT_ADDRESS=0x...
    BACKEND_ACCOUNT_PRIVATE_KEY=0x...
-   PROOF_SERVER_URL=http://localhost:3030
+   PROOF_SERVER_URL=https://<prover-gateway-host>
+   PROOF_SERVER_API_KEY=snip36_...
    ```
 
-   RPC calls are proxied through `/api/rpc` so the RPC key stays server-side.
+   The `PROOF_SERVER_API_KEY` is sent as an `x-api-key` header and must be kept server-side only.
 
-3. **Start the proof server** (separate terminal):
-
-   ```bash
-   cd /path/to/proofServer
-   # follow its own README
-   ```
-
-4. **Start the DApp**:
+3. **Start the DApp**:
 
    ```bash
    npm run dev
@@ -65,7 +59,7 @@ Voters cast governance votes without revealing their identity or their choice on
 
 ### Network Guard
 
-The DApp only works on **Starknet Sepolia**. If your wallet is on a different network, a red banner appears and both the admin and voter panels are hidden. Switch your wallet network and reconnect.
+The DApp only works on **Starknet Mainnet**. If your wallet is on a different network, a red banner appears and both the admin and voter panels are hidden. Switch your wallet network and reconnect.
 
 ### Getting Voting Power
 
@@ -74,7 +68,7 @@ Voting power comes from the **GovToken** ERC20. You must **delegate** your token
 **For testing**, use the built-in helper endpoint to delegate the backend account's tokens to your wallet:
 
 ```
-GET http://localhost:3000/api/test/delegate?target=<YOUR_WALLET_ADDRESS>
+http://localhost:3000/api/test/delegate?target=<YOUR_WALLET_ADDRESS>
 ```
 
 > This endpoint exists for testing only and will be removed before any production deployment.
@@ -95,7 +89,7 @@ The voter panel (green accent) is visible after connecting your wallet.
 1. **Check voting power** — your current delegation is shown. If zero, click "Delegate to myself".
 2. **Vote** — when the proposal is Active, choose For / Against / Abstain.
    - Your wallet signs an off-chain SNIP-12 typed message (no gas at this step).
-   - A proof is generated server-side (~40–50 seconds).
+   - A proof is generated via the remote prover gateway (~40–50 seconds).
    - The backend account submits the anonymous vote on-chain.
 3. **Confirmation** — "Your vote: ✓ For" is displayed in the matching color. A step progress stepper tracks each phase. If anything fails, a "Try again" button is available.
 
@@ -116,12 +110,12 @@ Browser (Next.js DApp)
             │
             ├── starknetFork            ← builds signed virtual INVOKE_TXN_V3
             │
-            └── Proof Server (localhost:3030)
+            └── SNIP-36 Prover Gateway (remote API)
                     │
                     ├── Runs create_proof() in SNIP-36 virtual OS
                     └── Returns { proof, proofFacts, l2ToL1Messages }
 
-On-chain (Starknet Sepolia)
+On-chain (Starknet Mainnet)
     ├── GovToken (ERC20 + checkpoints)
     └── AnonGovernor
             ├── cast_anonymous_vote()   ← submitted by backend account
@@ -167,15 +161,15 @@ The resulting ECDSA signature `(r, s)` never leaves the browser in plain form. I
 
 This is the only step that requires the voter's wallet. No gas is spent.
 
-> **Important SNIP-12 encoding detail:** The domain `version` field must be `shortString.encodeShortString("1")` = `"0x31"`, not the integer `"1"`. Using `"1"` produces a different hash, causing `is_valid_signature` to fail with `Result::unwrap failed.` from the proof server. Similarly, `chain_id` must be the hex value returned by `wallet_requestChainId` (e.g. `"0x534e5f5345504f4c4941"`), not the string `"SN_SEPOLIA"`.
+> **Important SNIP-12 encoding detail:** The domain `version` field must be `shortString.encodeShortString("1")` = `"0x31"`, not the integer `"1"`. Using `"1"` produces a different hash, causing `is_valid_signature` to fail with `Result::unwrap failed.` from the proof server. Similarly, `chain_id` must be the hex value returned by `wallet_requestChainId` (e.g. `"0x534e5f4d41494e"` for Mainnet), not the string `"SN_MAIN"`.
 
-#### Step 2 — Off-chain: generate the proof (Server Action + proof server)
+#### Step 2 — Off-chain: generate the proof (Server Action + prover gateway)
 
 The Next.js Server Action `generateProof(proposalId, support, voterAddress, signature)` orchestrates the proof:
 
-1. Using `starknetFork`, the backend account builds a signed `INVOKE_TXN_V3` calling `create_proof(proposal_id, support, voter, AnonVotePrivateInput { signature: [r, s] })`. This is a **virtual transaction** — it is never broadcast to the network.
+1. Using `starknetFork`, the backend account builds a signed `INVOKE_TXN_V3` calling `create_proof(proposal_id, support, voter, AnonVotePrivateInput { signature: [r, s] })`. This is a **virtual transaction** — it is never broadcast to the network. All resource bounds are set to zero, as required by the prover gateway.
 
-2. The proof server runs this transaction in the SNIP-36 virtual OS and:
+2. The prover gateway receives the signed transaction via `starknet_proveTransaction` (JSON-RPC 2.0) and:
    - Recovers the voter's public key from `(r, s)` and verifies it against the on-chain account.
    - Reads the voter's **past voting weight** from the token checkpoint at the proposal snapshot block (read from on-chain state, not supplied by the voter — this cannot be forged).
    - Computes the nullifier: `poseidon(NULLIFIER_DOMAIN, proposal_id, poseidon(r, s))`.
@@ -194,6 +188,29 @@ The voter's identity and their choice never appear in plain text on-chain.
 2. Recomputes the message hash from `AnonVoteMessage` and checks it against the proof facts.
 3. Checks the nullifier has not been used (`is_nullifier_used`).
 4. Marks the nullifier as consumed and tallies `{ nullifier, weight, support }`.
+
+### Prover Gateway API
+
+The proof request uses JSON-RPC 2.0 over HTTPS:
+
+```
+POST /v1/prove
+x-api-key: <PROOF_SERVER_API_KEY>
+
+{
+  "payload": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "starknet_proveTransaction",
+    "params": {
+      "block_id": { "block_number": <currentBlock> },
+      "transaction": <INVOKE_TXN_V3 with zero resource bounds>
+    }
+  }
+}
+```
+
+Response: `{ "result": { "jsonrpc": "2.0", "id": 1, "result": { proof, proofFacts, l2ToL1Messages } }, "remaining_quota": -1 }`
 
 ### Proposal Lifecycle
 
@@ -229,7 +246,7 @@ Current Starknet wallets (Argent, Braavos) are limited to Step 1:
 
 For both steps, the **backend account** — a standard `Account` from `starknet@10.0.2` with its own key pair and STRK balance — acts as the submitter. The voter's wallet is only used for the SNIP-12 signature in Step 1.
 
-> The backend account needs STRK to sign the virtual transaction in Step 2 (required by the fee estimation machinery even though the transaction is never broadcast and no STRK is actually spent). It does not need any governance tokens.
+> The backend account needs STRK to submit `cast_anonymous_vote` on-chain (Step 3). The virtual transaction in Step 2 uses zero resource bounds and is never broadcast, so no STRK is spent there.
 
 ### Client-Side Nullifier Pre-check
 
@@ -247,9 +264,9 @@ Before calling `generateProof`, the DApp:
 
 ## Lessons Learned
 
-### Proof generation is resource-intensive
+### Proof generation requires a dedicated backend
 
-Generating a SNIP-36 proof is computationally heavy: on current hardware it takes **40–50 seconds** and requires a backend with at least **18 GB of RAM**. This makes it impractical to run the proof server on a standard machine or in a serverless environment. A dedicated, high-memory backend is mandatory for any production deployment.
+Generating a SNIP-36 proof is computationally heavy: it takes **40–50 seconds** and requires a backend with at least **18 GB of RAM**. This makes it impractical to run locally on a standard machine or in a serverless environment. In this DApp the proof is delegated to a remote **SNIP-36 Prover Gateway** over an authenticated HTTPS API, which eliminates any local hardware requirement.
 
 ### Starknet wallets are not SNIP-36 friendly
 
@@ -267,7 +284,6 @@ Until wallets expose SNIP-36 primitives natively, anonymous voting requires a cu
 | Project | Description |
 |---|---|
 | [ERC20-anonym-governance-vote](https://github.com/PhilippeR26/ERC20-anonym-governance-vote) | Cairo contracts: GovToken + AnonGovernor |
-| [secure-voty — proofServer](https://github.com/PhilippeR26/secure-voty/tree/main/proofServer) | Local proof server (port 3030) |
 | [starknet.js-workshop-typescript — Starknet142-Sepolia](https://github.com/PhilippeR26/starknet.js-workshop-typescript/tree/main/src/scripts/Starknet142/Starknet142-Sepolia) | TypeScript usage examples (scripts 26–28) |
 | [OZ-contracts fork](https://github.com/PhilippeR26/OZ-contracts) (`anon-vote-frontend` branch) | OpenZeppelin fork with `GovernorCountingAnonymousComponent` |
 

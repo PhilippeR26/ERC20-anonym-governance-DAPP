@@ -3,6 +3,7 @@ name: snip-36
 description: "Use when implementing any SNIP-36 feature on Starknet — virtual blocks, off-chain computation with on-chain verification, privacy-preserving proofs, heavy computation offloading, or any application that runs a Cairo contract virtually and commits its result as a proof. Covers the complete stack: Cairo contract, proof server, Starknet.js integration."
 ---
 
+# SNIP-36
 
 ## Overview
 

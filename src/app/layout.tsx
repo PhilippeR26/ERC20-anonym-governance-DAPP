@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Anon Governance Demo",
-  description: "ERC20 anonymous governance on Starknet Sepolia",
+  description: "ERC20 anonymous governance on Starknet Mainnet",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -18,38 +18,38 @@ export async function requestProof(
   tx: INVOKE_TXN_V3,
 ): Promise<ProveResult> {
   const proofServerUrl = process.env.PROOF_SERVER_URL ?? "http://localhost:3030";
-  const response = await fetch(`${proofServerUrl}/prove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ blockNumber: currentBlock, tx }),
+  const apiKey = process.env.PROOF_SERVER_API_KEY;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["x-api-key"] = apiKey;
+
+  const body = JSON.stringify({
+    payload: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "starknet_proveTransaction",
+      params: {
+        block_id: { block_number: currentBlock },
+        transaction: tx,
+      },
+    },
   });
 
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let proofRes: ProveResult | undefined;
+  const response = await fetch(`${proofServerUrl}/v1/prove`, {
+    method: "POST",
+    headers,
+    body,
+  });
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const messages = buffer.split("\n\n");
-    buffer = messages.pop() ?? "";
-
-    for (const message of messages) {
-      if (!message.trim()) continue;
-      const eventMatch = message.match(/^event: (\w+)/);
-      const dataMatch = message.match(/^data: (.+)$/m);
-      if (!eventMatch || !dataMatch) continue;
-      const event = eventMatch[1];
-      const data = JSON.parse(dataMatch[1]);
-
-      if (event === "log") console.log(`[proof-server][${data.stream}]`, data.line);
-      if (event === "done") proofRes = data;
-      if (event === "error") throw new Error(`Proof server error: ${data.message}`);
-    }
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Proof server HTTP ${response.status}: ${text}`);
   }
 
-  if (!proofRes) throw new Error("Proof server returned no result");
-  return proofRes;
+  const data = await response.json();
+  const rpc = data.result;
+  if (!rpc) throw new Error(`Proof server returned no result: ${JSON.stringify(data)}`);
+  if (rpc.error) throw new Error(`Proof server RPC error: ${JSON.stringify(rpc.error)}`);
+  if (!rpc.result) throw new Error(`Proof server RPC: missing result field: ${JSON.stringify(rpc)}`);
+  return rpc.result as ProveResult;
 }
