@@ -39,14 +39,16 @@ export async function generateProof(
     private_input: { signature },
   });
 
-  // External proof server requires all resource bounds at zero for virtual transactions.
+  // Virtual transaction: the prover requires a max possible fee of zero, so all gas
+  // *prices* and the tip must be 0. But the gas *amounts* must be non-zero, or the
+  // account's __validate__ panics with 'Out of gas' before create_proof runs.
   const resourceBounds: ResourceBoundsBN = {
-    l2_gas: { max_amount: 0n, max_price_per_unit: 0n },
-    l1_gas: { max_amount: 0n, max_price_per_unit: 0n },
-    l1_data_gas: { max_amount: 0n, max_price_per_unit: 0n },
+    l2_gas: { max_amount: 0x4000000n, max_price_per_unit: 0n },
+    l1_gas: { max_amount: 0x100000n, max_price_per_unit: 0n },
+    l1_data_gas: { max_amount: 0x10000n, max_price_per_unit: 0n },
   };
 
-  const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds });
+  const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n });
   const currentBlock = await myProvider.getBlockNumber();
   const result = await requestProof(currentBlock, tx);
 
