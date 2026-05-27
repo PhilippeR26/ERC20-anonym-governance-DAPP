@@ -51,5 +51,11 @@ export async function requestProof(
   if (!rpc) throw new Error(`Proof server returned no result: ${JSON.stringify(data)}`);
   if (rpc.error) throw new Error(`Proof server RPC error: ${JSON.stringify(rpc.error)}`);
   if (!rpc.result) throw new Error(`Proof server RPC: missing result field: ${JSON.stringify(rpc)}`);
-  return rpc.result as ProveResult;
+  // The prover returns snake_case keys; normalize to the camelCase callers expect.
+  const r = rpc.result;
+  return {
+    proof: r.proof,
+    proofFacts: r.proofFacts ?? r.proof_facts ?? [],
+    l2ToL1Messages: r.l2ToL1Messages ?? r.l2_to_l1_messages,
+  } as ProveResult;
 }
