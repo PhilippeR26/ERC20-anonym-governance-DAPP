@@ -63,10 +63,12 @@ export async function generateProof(
   const currentBlock = await myProvider.getBlockNumber();
   const result = await requestProof(currentBlock, tx);
 
+  if (!result.l2ToL1Messages?.[0])
+    throw new Error("Proof server returned no L2→L1 message — cannot decode public vote message");
   const cd = new CallData(governorAbi as Abi);
   const publicMessage = cd.decodeParameters(
     "openzeppelin_governance::governor::extensions::governor_counting_anonymous::GovernorCountingAnonymousComponent::AnonVoteMessage",
-    result.l2ToL1Messages![0].payload as string[],
+    result.l2ToL1Messages[0].payload as string[],
   ) as AnonVoteMessage;
 
   const castCall = gov.populate("cast_anonymous_vote", { public_message: publicMessage });
