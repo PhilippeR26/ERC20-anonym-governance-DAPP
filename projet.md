@@ -1,5 +1,7 @@
 # Objective
-Create a local demo DApp showing ERC20 governance with anonymous ZK voting (SNIP-36) on Starknet Sepolia.
+Demo DApp showing ERC20 governance with anonymous ZK voting (SNIP-36).
+- Branch `main`: Starknet Sepolia, local proof server (`localhost:3030`)
+- Branch `external-server`: Starknet Mainnet, remote SNIP-36 Prover Gateway
 
 # Stack
 - Next.js 16, Chakra UI v3, Zustand v5
@@ -20,7 +22,7 @@ Create a local demo DApp showing ERC20 governance with anonymous ZK voting (SNIP
 1. Wallet signs `AnonVoteIntent { proposalId, support }` via `wallet_signTypedData` (SNIP-12)
 2. Server Action `generateProof(proposalId, support, voterAddress, signature)`:
    - Backend account calls `getSignedTransaction(create_proof(...))` → signed virtual tx
-   - Proof server (`localhost:3030`) runs the tx, returns `{ proof, proofFacts, l2ToL1Messages }`
+   - SNIP-36 Prover Gateway runs the tx via `starknet_proveTransaction`, returns `{ proof, proofFacts, l2ToL1Messages }`
    - `publicMessage` decoded from L2→L1 message payload
    - Backend account calls `execute(cast_anonymous_vote(publicMessage), { proof, proofFacts })`
    - Returns `{ transaction_hash }`
@@ -30,7 +32,8 @@ Create a local demo DApp showing ERC20 governance with anonymous ZK voting (SNIP
 A keypair (address + private key) needed server-side. Must hold **STRK** for signing the virtual tx (tx is never broadcast; STRK not actually spent). Governance tokens are delegated TO the voter wallet — the backend account itself needs no tokens.
 
 # Proof Server
-Local server at `http://localhost:3030`. Source: `/D/Starknet/secure-voty/proofServer`.
+Remote SNIP-36 Prover Gateway (JSON-RPC 2.0, authenticated via `x-api-key`). URL and API key in `.env.local`.
+Local server (`localhost:3030`, `main` branch): `/D/Starknet/secure-voty/proofServer`.
 
 # Environment Variables
 ```env
@@ -39,10 +42,11 @@ NEXT_PUBLIC_GOVERNOR_ADDRESS=0x...
 NEXT_PUBLIC_TOKEN_ADDRESS=0x...
 
 # Server only (no NEXT_PUBLIC_ prefix)
-RPC_URL=https://starknet-sepolia.g.alchemy.com/...   # proxied via /api/rpc
+RPC_URL=https://starknet-mainnet.g.alchemy.com/...
 BACKEND_ACCOUNT_ADDRESS=0x...
 BACKEND_ACCOUNT_PRIVATE_KEY=0x...
-PROOF_SERVER_URL=http://localhost:3030
+PROOF_SERVER_URL=https://<prover-gateway-host>
+PROOF_SERVER_API_KEY=snip36_...
 ```
 The RPC key is kept server-only and proxied through `/api/rpc` (Next.js route).
 
@@ -57,7 +61,7 @@ The RPC key is kept server-only and proxied through `/api/rpc` (Next.js route).
 
 ## SNIP-12 typed data (critical)
 - `version` must be `shortString.encodeShortString("1")` = `"0x31"`, **NOT** the integer `"1"`. Using `"1"` produces a different hash → `is_valid_signature` fails → `Result::unwrap failed.` from proof server.
-- `chainId` must be the hex value from `wallet_requestChainId` (e.g., `"0x534e5f5345504f4c4941"`), **NOT** `"SN_SEPOLIA"`.
+- `chainId` must be the hex value from `wallet_requestChainId` (e.g., `"0x534e5f4d41494e"` for Mainnet), **NOT** `"SN_MAIN"`.
 
 ## Governor ABI specifics
 - `proposal_votes` does **not** exist in `GovernorCountingAnonymousComponent` — vote counts are internal storage, not exposed as view functions
