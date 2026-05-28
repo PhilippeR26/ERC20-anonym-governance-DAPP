@@ -10,7 +10,7 @@ type ProofMessage = {
 export type ProveResult = {
   proof: string;
   proofFacts: BigNumberish[];
-  l2ToL1Messages?: ProofMessage[];
+  l2ToL1Messages: ProofMessage[];
 };
 
 export async function requestProof(
@@ -35,11 +35,19 @@ export async function requestProof(
     },
   });
 
-  const response = await fetch(`${proofServerUrl}/v1/prove`, {
-    method: "POST",
-    headers,
-    body,
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120_000);
+  let response: Response;
+  try {
+    response = await fetch(`${proofServerUrl}/v1/prove`, {
+      method: "POST",
+      headers,
+      body,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -56,6 +64,6 @@ export async function requestProof(
   return {
     proof: r.proof,
     proofFacts: r.proofFacts ?? r.proof_facts ?? [],
-    l2ToL1Messages: r.l2ToL1Messages ?? r.l2_to_l1_messages,
+    l2ToL1Messages: r.l2ToL1Messages ?? r.l2_to_l1_messages ?? [],
   } as ProveResult;
 }

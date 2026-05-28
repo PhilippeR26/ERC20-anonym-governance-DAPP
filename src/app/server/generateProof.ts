@@ -42,20 +42,23 @@ export async function generateProof(
   // Virtual transaction: the prover requires a max possible fee of zero, so all gas
   // *prices* and the tip must be 0. But the gas *amounts* must be non-zero, or the
   // account's __validate__ panics with 'Out of gas' before create_proof runs.
+  // Amounts from 28.testGovernance2Proof.ts with 2× buffer.
   const resourceBounds: ResourceBoundsBN = {
-    l2_gas: { max_amount: 0x4000000n, max_price_per_unit: 0n },
-    l1_gas: { max_amount: 0x100000n, max_price_per_unit: 0n },
-    l1_data_gas: { max_amount: 0x10000n, max_price_per_unit: 0n },
+    l2_gas: { max_amount: BigInt("0x279fc0") * 2n, max_price_per_unit: 0n },
+    l1_gas: { max_amount: BigInt("0xbd2a") * 2n, max_price_per_unit: 0n },
+    l1_data_gas: { max_amount: BigInt("0xc0") * 2n, max_price_per_unit: 0n },
   };
 
   const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n });
   const currentBlock = await myProvider.getBlockNumber();
   const result = await requestProof(currentBlock, tx);
 
+  if (!result.l2ToL1Messages[0])
+    throw new Error("Proof server returned no L2→L1 message — cannot decode public vote message");
   const cd = new CallData(governorAbi as Abi);
   const publicMessage = cd.decodeParameters(
     "openzeppelin_governance::governor::extensions::governor_counting_anonymous::GovernorCountingAnonymousComponent::AnonVoteMessage",
-    result.l2ToL1Messages![0].payload as string[],
+    result.l2ToL1Messages[0].payload as string[],
   ) as AnonVoteMessage;
 
   const castCall = gov.populate("cast_anonymous_vote", { public_message: publicMessage });
