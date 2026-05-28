@@ -167,7 +167,10 @@ This is the only step that requires the voter's wallet. No gas is spent.
 
 The Next.js Server Action `generateProof(proposalId, support, voterAddress, signature)` orchestrates the proof:
 
-1. Using `starknetFork`, the backend account builds a signed `INVOKE_TXN_V3` calling `create_proof(proposal_id, support, voter, AnonVotePrivateInput { signature: [r, s] })`. This is a **virtual transaction** — it is never broadcast to the network. All resource bounds are set to zero, as required by the prover gateway.
+1. Using `starknetFork`, the backend account builds a signed `INVOKE_TXN_V3` calling `create_proof(proposal_id, support, voter, AnonVotePrivateInput { signature: [r, s] })`. This is a **virtual transaction** — it is never broadcast to the network. The prover gateway requires a **max possible fee of zero**, so all `max_price_per_unit` fields and `tip` are set to `0`. However, gas **amounts** (`max_amount`) must be non-zero — setting them to zero causes `__validate__` to panic with `'Out of gas'` before `create_proof` runs.
+
+   > [!WARNING]
+   > **Never use `estimateFee()` for this virtual transaction.** The calldata contains the voter's identity (`voter` address) and their vote choice (encoded in the SNIP-12 signature `(r, s)`). Calling `estimateFee()` would send this calldata to an RPC node for simulation, exposing both who votes and what they vote to that node — breaking anonymity before the proof is even generated. Resource bounds are therefore hardcoded to safe upper bounds.
 
 2. The prover gateway receives the signed transaction via `starknet_proveTransaction` (JSON-RPC 2.0) and:
    - Recovers the voter's public key from `(r, s)` and verifies it against the on-chain account.
@@ -204,7 +207,7 @@ x-api-key: <PROOF_SERVER_API_KEY>
     "method": "starknet_proveTransaction",
     "params": {
       "block_id": { "block_number": <currentBlock> },
-      "transaction": <INVOKE_TXN_V3 with zero resource bounds>
+      "transaction": <INVOKE_TXN_V3: tip=0, all max_price_per_unit=0, non-zero max_amount>
     }
   }
 }
@@ -246,7 +249,7 @@ Current Starknet wallets (Argent, Braavos) are limited to Step 1:
 
 For both steps, the **backend account** — a standard `Account` from `starknet@10.0.2` with its own key pair and STRK balance — acts as the submitter. The voter's wallet is only used for the SNIP-12 signature in Step 1.
 
-> The backend account needs STRK to submit `cast_anonymous_vote` on-chain (Step 3). The virtual transaction in Step 2 uses zero resource bounds and is never broadcast, so no STRK is spent there.
+> The backend account needs STRK to submit `cast_anonymous_vote` on-chain (Step 3). The virtual transaction in Step 2 is never broadcast and has zero gas prices, so no STRK is spent there.
 
 ### Client-Side Nullifier Pre-check
 

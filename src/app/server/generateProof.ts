@@ -42,11 +42,11 @@ export async function generateProof(
   // Virtual transaction: the prover requires a max possible fee of zero, so all gas
   // *prices* and the tip must be 0. But the gas *amounts* must be non-zero, or the
   // account's __validate__ panics with 'Out of gas' before create_proof runs.
-  // Amounts from 28.testGovernance2Proof.ts with 2× buffer.
+  // Amounts from 28.testGovernance2Proof.ts with 3× buffer (from Testnet fee estimate).
   const resourceBounds: ResourceBoundsBN = {
-    l2_gas: { max_amount: BigInt("0x279fc0") * 2n, max_price_per_unit: 0n },
-    l1_gas: { max_amount: BigInt("0xbd2a") * 2n, max_price_per_unit: 0n },
-    l1_data_gas: { max_amount: BigInt("0xc0") * 2n, max_price_per_unit: 0n },
+    l2_gas: { max_amount: BigInt("0x279fc0") * 3n, max_price_per_unit: 0n },
+    l1_gas: { max_amount: BigInt("0xbd2a") * 3n, max_price_per_unit: 0n },
+    l1_data_gas: { max_amount: BigInt("0xc0") * 3n, max_price_per_unit: 0n },
   };
 
   const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n });
