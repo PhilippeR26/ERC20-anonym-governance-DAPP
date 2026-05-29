@@ -10,6 +10,17 @@ Voters cast governance votes without revealing their identity or their choice on
 
 ---
 
+## Branches
+
+| Branch | Network | Proof server |
+|---|---|---|
+| `main` | Starknet Sepolia | Local (`localhost:3030`) — see [secure-voty/proofServer](https://github.com/PhilippeR26/secure-voty/tree/main/proofServer) |
+| `external-server` | Starknet Mainnet | Remote SNIP-36 Prover Gateway (requires `PROOF_SERVER_URL` + `PROOF_SERVER_API_KEY`) |
+
+The two branches are otherwise identical in code structure. Switch branches to target a different network.
+
+---
+
 ## Part 1 — Using the DApp
 
 ### Prerequisites
