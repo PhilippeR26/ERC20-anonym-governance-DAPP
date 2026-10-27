@@ -1,10 +1,10 @@
 "use server";
 
-import { Account, Contract, RpcProvider, CallData } from "starknetFork";
-import type { Abi, ResourceBoundsBN, UniversalDetails } from "starknetFork";
+import { Account, Contract, RpcProvider, CallData } from "starknet";
+import type { Abi, ResourceBoundsBN } from "starknet";
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
 import { requestProof } from "./requestProof";
-import { GOVERNOR_ADDRESS } from "@/app/utils/constants";
+import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG } from "@/app/utils/constants";
 import governorAbi from "@/app/abi/governor.json";
 
 type AnonVoteMessage = {
@@ -49,9 +49,11 @@ export async function generateProof(
     l1_data_gas: { max_amount: BigInt("0xc0") * 3n, max_price_per_unit: 0n },
   };
 
-  const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n });
-  const currentBlock = await myProvider.getBlockNumber();
-  const result = await requestProof(currentBlock, tx);
+  const referenceBlock = (await myProvider.getBlockNumber()) - REFERENCE_BLOCK_LAG;
+  const nonce = await backend.getNonce(referenceBlock);
+  const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n, nonce });
+  console.log(`Proof reference block: ${referenceBlock} (head - ${REFERENCE_BLOCK_LAG})`);
+  const result = await requestProof(referenceBlock, tx);
 
   if (!result.l2ToL1Messages[0])
     throw new Error("Proof server returned no L2→L1 message — cannot decode public vote message");
@@ -65,6 +67,6 @@ export async function generateProof(
   const { transaction_hash } = await backend.execute(castCall, {
     proof: result.proof,
     proofFacts: result.proofFacts,
-  } as UniversalDetails);
+  });
   return { transaction_hash };
 }

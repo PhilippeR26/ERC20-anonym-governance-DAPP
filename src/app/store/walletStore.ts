@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { constants } from "starknet";
-import type { WalletAccountV5, RpcProvider } from "starknet";
+import type { WalletAccountV6, RpcProvider } from "starknet";
 import type { WalletWithStarknetFeatures } from "@starknet-io/get-starknet-wallet-standard/features";
 
 const SN_MAIN = constants.StarknetChainId.SN_MAIN;
@@ -12,7 +12,7 @@ interface WalletState {
   address: string;
   chainId: string;
   wrongNetwork: boolean;
-  walletAccount: WalletAccountV5 | undefined;
+  walletAccount: WalletAccountV6 | undefined;
   provider: RpcProvider | undefined;
   walletWSF: WalletWithStarknetFeatures | undefined;
   displaySelectWalletUI: boolean;
@@ -20,7 +20,7 @@ interface WalletState {
   setConnected: (v: boolean) => void;
   setAddress: (v: string) => void;
   setChainId: (v: string) => void;
-  setWalletAccount: (v: WalletAccountV5) => void;
+  setWalletAccount: (v: WalletAccountV6) => void;
   setProvider: (v: RpcProvider) => void;
   setWalletWSF: (v: WalletWithStarknetFeatures) => void;
   setDisplaySelectWalletUI: (v: boolean) => void;

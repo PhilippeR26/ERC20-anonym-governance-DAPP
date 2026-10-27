@@ -1,4 +1,4 @@
-import { shortString, type TypedData } from "starknet";
+import { CairoBytes31, type TypedData } from "starknet";
 
 export const ANON_VOTE_INTENT_TYPES: TypedData["types"] = {
   StarknetDomain: [
@@ -19,7 +19,7 @@ export function buildAnonVoteTypedData(proposalId: string, support: number, chai
     primaryType: "AnonVoteIntent",
     domain: {
       name: "AnonGovernor",
-      version: shortString.encodeShortString("1"),  // 0x31 — shortstring, not integer
+      version: CairoBytes31.fromText("1").toHexString(),  // 0x31 — shortstring, not integer
       chainId,
       revision: "1",
     },

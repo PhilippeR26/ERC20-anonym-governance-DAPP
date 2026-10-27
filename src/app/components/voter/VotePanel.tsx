@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Box, Button, Text } from "@chakra-ui/react";
 import { Contract, type Abi } from "starknet";
 import { useWalletStore } from "@/app/store/walletStore";
-import { useProposalStore } from "@/app/store/proposalStore";
+import { useProposalStore, isProposalClosed } from "@/app/store/proposalStore";
 import { buildAnonVoteTypedData } from "@/app/utils/typedData";
 import { computeNullifier } from "@/app/utils/nullifier";
 import { generateProof } from "@/app/server/generateProof";
-import { GOVERNOR_ADDRESS } from "@/app/utils/constants";
+import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG, CHAIN_POLL_INTERVAL_MS } from "@/app/utils/constants";
 import governorAbi from "@/app/abi/governor.json";
 import VoteProgressStepper, { type VoteStep } from "./VoteProgressStepper";
 
@@ -28,10 +28,32 @@ export default function VotePanel() {
 
   const { walletAccount, walletWSF, address, chainId, provider } = useWalletStore();
   const { proposalId, description, proposalState, refreshFromChain } = useProposalStore();
+  const [voteWindow, setVoteWindow] = useState<{ snapshot: number; deadline: number }>();
+  const [headBlock, setHeadBlock] = useState<number>();
+
+  const closed = isProposalClosed(proposalState);
+
+  useEffect(() => {
+    if (!proposalId || !provider || closed) return;
+    const gov = new Contract({ abi: governorAbi as Abi, address: GOVERNOR_ADDRESS, providerOrAccount: provider });
+    Promise.all([gov.proposal_snapshot(proposalId), gov.proposal_deadline(proposalId)]).then(([snapshot, deadline]) =>
+      setVoteWindow({ snapshot: Number(snapshot), deadline: Number(deadline) }),
+    );
+    const pollHead = () => provider.getBlockNumber().then(setHeadBlock);
+    pollHead();
+    const interval = setInterval(pollHead, CHAIN_POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [proposalId, provider, closed]);
 
   if (!proposalId) return null;
 
   const isActive = proposalState === "Active";
+  // The proof's reference block (head - lag) must be inside the voting window.
+  const referenceBlockInWindow =
+    voteWindow !== undefined &&
+    headBlock !== undefined &&
+    headBlock - REFERENCE_BLOCK_LAG > voteWindow.snapshot &&
+    headBlock <= voteWindow.deadline;
 
   async function handleVote(choice: Choice) {
     if (!walletAccount || !walletWSF || !proposalId || !address || !chainId) return;
@@ -102,7 +124,7 @@ export default function VotePanel() {
             key={choice.value}
             flex={1}
             colorPalette={choice.colorPalette}
-            disabled={!isActive || voteStep !== "idle"}
+            disabled={!isActive || !referenceBlockInWindow || voteStep !== "idle"}
             onClick={() => handleVote(choice)}
           >
             {choice.label}

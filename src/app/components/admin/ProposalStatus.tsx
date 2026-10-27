@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { Box, Button, Text } from "@chakra-ui/react";
 import { Contract, type Abi } from "starknet";
-import { useProposalStore } from "@/app/store/proposalStore";
-import { provider, GOVERNOR_ADDRESS } from "@/app/utils/constants";
+import { useProposalStore, isProposalClosed } from "@/app/store/proposalStore";
+import { provider, GOVERNOR_ADDRESS, CHAIN_POLL_INTERVAL_MS } from "@/app/utils/constants";
 import governorAbi from "@/app/abi/governor.json";
 
 export default function ProposalStatus() {
@@ -12,8 +12,10 @@ export default function ProposalStatus() {
   const [deadline, setDeadline] = useState<number | null>(null);
   const [currentBlock, setCurrentBlock] = useState<number | null>(null);
 
+  const closed = isProposalClosed(proposalState);
+
   useEffect(() => {
-    if (!proposalId) return;
+    if (!proposalId || closed) return;
 
     async function init() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,10 +32,10 @@ export default function ProposalStatus() {
     const interval = setInterval(() => {
       provider.getBlockNumber().then(setCurrentBlock);
       refreshFromChain();
-    }, 30_000);
+    }, CHAIN_POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [proposalId]);
+  }, [proposalId, closed]);
 
   if (!proposalId) {
     return (
