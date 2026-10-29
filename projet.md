@@ -73,8 +73,8 @@ The RPC key is kept server-only and proxied through `/api/rpc` (Next.js route).
 ## Delegation prerequisite
 Delegation must happen **before** the proposal snapshot block. `get_past_votes(voter, snapshot)` is what the governor checks; tokens delegated after the proposal is created have no effect on that proposal.
 
-## Temporary test helper
-`GET /api/test/delegate?target=0x<voter>` — delegates the backend account's tokens to the target address. File: `src/app/api/test/delegate/route.ts`. **Remove once testing is complete.**
+## Test helper removed
+The temporary route `GET /api/test/delegate` (it delegated the backend account's tokens to a target address) was removed on 2026-10-29: on a public deployment it would let anyone take the voting power and spend the backend's fees. To give a wallet voting power, act from the account holding the supply (transfer + "Delegate to myself", or `delegate(<wallet>)`).
 
 # How It Looks
 

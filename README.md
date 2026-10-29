@@ -88,13 +88,7 @@ The DApp only works on the network it runs on, always shown by the badge next to
 
 Voting power comes from the **GovToken** ERC20. You must **delegate** your tokens to yourself (or to another address) before the proposal is created — tokens delegated after the proposal snapshot block have no effect on that proposal.
 
-**For testing**, use the built-in helper endpoint to delegate the backend account's tokens to your wallet:
-
-```
-http://localhost:3000/api/test/delegate?target=<YOUR_WALLET_ADDRESS>
-```
-
-> This endpoint exists for testing only and will be removed before any production deployment.
+**For testing**, there is no built-in helper: the initial supply of the demo token sits on the backend account of each network. From that account (with your own script or wallet), either transfer some GovToken to your wallet and click "Delegate to myself", or call `delegate(<your wallet address>)` on the GovToken yourself. Do it before creating the proposal.
 
 ### Admin Workflow
 
