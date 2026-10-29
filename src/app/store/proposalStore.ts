@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Contract, type Abi, type CairoCustomEnum } from "starknet";
 import { provider, GOVERNOR_ADDRESS } from "@/app/utils/constants";
+import { NETWORK } from "@/app/utils/network";
 import governorAbi from "@/app/abi/governor.json";
 
 export type ProposalState =
@@ -85,7 +86,7 @@ export const useProposalStore = create<ProposalStoreState>()(
       },
     }),
     {
-      name: "anon-governance-proposal-v2",
+      name: `anon-governance-proposal-v2-${NETWORK.name}`,
       partialize: (state) => ({
         proposalId: state.proposalId,
         description: state.description,

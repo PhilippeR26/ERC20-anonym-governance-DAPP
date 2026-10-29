@@ -66,3 +66,34 @@ export const NETWORK: NetworkConfig = resolveNetwork(process.env.NEXT_PUBLIC_NET
     token: process.env.NEXT_PUBLIC_MAINNET_TOKEN_ADDRESS,
   },
 });
+
+// Chain IDs are compared as numbers: wallets differ in letter case and leading zeros.
+function chainValue(chainId: string): bigint | undefined {
+  try {
+    return BigInt(chainId);
+  } catch {
+    return undefined;
+  }
+}
+
+export function isExpectedChain(chainId: string, network: NetworkConfig = NETWORK): boolean {
+  const value = chainValue(chainId);
+  return value !== undefined && value === BigInt(network.chainId);
+}
+
+export function walletNetworkName(chainId: string): string {
+  const value = chainValue(chainId);
+  const known = Object.values(NETWORKS).find((n) => value !== undefined && BigInt(n.chainId) === value);
+  if (known) return known.walletName;
+  if (value === undefined || !/^0x[0-9a-fA-F]+$/.test(chainId)) return chainId;
+  const hex = value.toString(16);
+  const bytes = (hex.length % 2 ? `0${hex}` : hex).match(/../g)!.map((b) => parseInt(b, 16));
+  return bytes.every((b) => b >= 0x20 && b <= 0x7e) ? String.fromCharCode(...bytes) : chainId;
+}
+
+export function wrongNetworkMessage(walletChainId: string, network: NetworkConfig = NETWORK): string {
+  return (
+    `Your wallet is on ${walletNetworkName(walletChainId)}. ` +
+    `This demo runs on ${network.walletName}: switch your wallet to ${network.walletName}, then reconnect.`
+  );
+}

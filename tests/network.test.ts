@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { constants } from "starknet";
-import { resolveNetwork, NETWORK } from "../src/app/utils/network";
+import {
+  resolveNetwork,
+  NETWORK,
+  isExpectedChain,
+  walletNetworkName,
+  wrongNetworkMessage,
+} from "../src/app/utils/network";
 
 describe("resolveNetwork", () => {
   it("returns the Sepolia table", () => {
@@ -59,5 +65,29 @@ describe("resolveNetwork", () => {
 
   it("resolves NETWORK from NEXT_PUBLIC_NETWORK", () => {
     expect(NETWORK.name).toBe("sepolia");
+  });
+});
+
+describe("wallet network guard", () => {
+  const SEPOLIA = resolveNetwork("sepolia");
+
+  it("recognises the expected chain whatever its hex spelling", () => {
+    expect(isExpectedChain("0x534e5f5345504f4c4941", SEPOLIA)).toBe(true);
+    expect(isExpectedChain("0x00534E5F5345504F4C4941", SEPOLIA)).toBe(true);
+    expect(isExpectedChain(constants.StarknetChainId.SN_MAIN, SEPOLIA)).toBe(false);
+    expect(isExpectedChain("not-a-chain", SEPOLIA)).toBe(false);
+  });
+
+  it("names the wallet network", () => {
+    expect(walletNetworkName(constants.StarknetChainId.SN_MAIN)).toBe("Starknet Mainnet");
+    expect(walletNetworkName("0x534E5F5345504F4C4941")).toBe("Starknet Sepolia");
+    expect(walletNetworkName("0x534e5f494e544547524154494f4e5f5345504f4c4941")).toBe("SN_INTEGRATION_SEPOLIA");
+    expect(walletNetworkName("0x1")).toBe("0x1");
+  });
+
+  it("builds the wrong-network message", () => {
+    expect(wrongNetworkMessage(constants.StarknetChainId.SN_MAIN, SEPOLIA)).toBe(
+      "Your wallet is on Starknet Mainnet. This demo runs on Starknet Sepolia: switch your wallet to Starknet Sepolia, then reconnect.",
+    );
   });
 });
