@@ -5,6 +5,7 @@
 import { Account, Contract, RpcProvider } from "starknet";
 import type { Abi } from "starknet";
 import { TOKEN_ADDRESS } from "@/app/utils/constants";
+import { getBackendAccountConfig, getRpcUrl } from "@/app/server/serverConfig";
 import tokenAbi from "@/app/abi/token.json";
 
 export async function GET(request: Request) {
@@ -14,11 +15,12 @@ export async function GET(request: Request) {
     return Response.json({ error: "Missing ?target=0x..." }, { status: 400 });
   }
 
-  const provider = new RpcProvider({ nodeUrl: process.env.RPC_URL! });
+  const provider = new RpcProvider({ nodeUrl: getRpcUrl() });
+  const backendAccount = getBackendAccountConfig();
   const backend = new Account({
     provider,
-    address: process.env.BACKEND_ACCOUNT_ADDRESS!,
-    signer: process.env.BACKEND_ACCOUNT_PRIVATE_KEY!,
+    address: backendAccount.address,
+    signer: backendAccount.privateKey,
   });
   const token = new Contract({
     abi: tokenAbi as Abi,
