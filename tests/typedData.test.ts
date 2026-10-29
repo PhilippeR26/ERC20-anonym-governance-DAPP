@@ -7,7 +7,7 @@ describe("buildAnonVoteTypedData", () => {
     const td = buildAnonVoteTypedData("0xabc", 1, "SN_MAIN");
     expect(td.primaryType).toBe("AnonVoteIntent");
     expect(td.domain.name).toBe("AnonGovernor");
-    expect(td.domain.version).toBe("1");
+    expect(td.domain.version).toBe("0x31");
     expect(td.domain.chainId).toBe("SN_MAIN");
   });
 
