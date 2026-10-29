@@ -7,7 +7,7 @@ import { useWalletStore } from "@/app/store/walletStore";
 import { useProposalStore, isProposalClosed } from "@/app/store/proposalStore";
 import { buildAnonVoteTypedData } from "@/app/utils/typedData";
 import { computeNullifier } from "@/app/utils/nullifier";
-import { generateProof } from "@/app/server/generateProof";
+import { readVoteStream, type VoteInput } from "@/app/utils/voteEvents";
 import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG, CHAIN_POLL_INTERVAL_MS } from "@/app/utils/constants";
 import governorAbi from "@/app/abi/governor.json";
 import VoteProgressStepper, { type VoteStep } from "./VoteProgressStepper";
@@ -24,6 +24,7 @@ export default function VotePanel() {
   const [voteStep, setVoteStep] = useState<VoteStep>("idle");
   const [errorMessage, setErrorMessage] = useState<string>();
   const [txHash, setTxHash] = useState<string>();
+  const [queue, setQueue] = useState<{ position: number; etaSec: number }>();
   const [activeChoice, setActiveChoice] = useState<Choice | null>(null);
 
   const { walletAccount, walletWSF, address, chainId, provider } = useWalletStore();
@@ -62,6 +63,7 @@ export default function VotePanel() {
     setVoteStep("signing");
     setErrorMessage(undefined);
     setTxHash(undefined);
+    setQueue(undefined);
 
     try {
       const td = buildAnonVoteTypedData(proposalId, choice.value, chainId);
@@ -80,12 +82,20 @@ export default function VotePanel() {
       }
 
       setVoteStep("generating");
-      const { transaction_hash } = await generateProof(
-        proposalId,
-        choice.value,
-        address,
-        signature,
-      );
+      const input: VoteInput = { proposalId, support: choice.value, voterAddress: address, signature };
+      const response = await fetch("/api/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      const transaction_hash = await readVoteStream(response, (event) => {
+        if (event.type === "queued") setQueue({ position: event.position, etaSec: event.etaSec });
+        if (event.type === "started") setQueue(undefined);
+        if (event.type === "proved") {
+          setQueue(undefined);
+          setVoteStep("submitting");
+        }
+      });
 
       setVoteStep("submitting");
       await provider!.waitForTransaction(transaction_hash);
@@ -141,13 +151,13 @@ export default function VotePanel() {
         </Text>
       )}
 
-      <VoteProgressStepper step={voteStep} errorMessage={errorMessage} txHash={txHash} />
+      <VoteProgressStepper step={voteStep} errorMessage={errorMessage} txHash={txHash} queue={queue} />
       {voteStep === "error" && (
         <Button
           size="sm"
           variant="ghost"
           mt={2}
-          onClick={() => { setVoteStep("idle"); setErrorMessage(undefined); setActiveChoice(null); }}
+          onClick={() => { setVoteStep("idle"); setErrorMessage(undefined); setActiveChoice(null); setQueue(undefined); }}
         >
           Try again
         </Button>
