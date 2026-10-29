@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
-import { requestProof } from "../src/app/server/requestProof";
+import { checkProofServerHealth, requestProof } from "../src/app/server/requestProof";
+import type { ProofProgress } from "../src/app/utils/voteEvents";
 
 const TX = {
   type: "INVOKE",
@@ -21,9 +22,20 @@ const TX = {
   fee_data_availability_mode: "L1",
 } as INVOKE_TXN_V3;
 
-type RecordedRequest = { url: string; method: string; headers: Headers; body: unknown };
+const TARGET = { url: "http://192.168.1.26:3030" };
+const PUBLIC = { url: "https://proof.example/sepolia", apiKey: "s" };
 
-function fakeServer(status: number, chunks: string[]): RecordedRequest[] {
+type RecordedRequest = { url: string; method: string; headers: Headers; body: unknown };
+type FakeReply = {
+  status?: number;
+  statusText?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  chunks?: string[];
+};
+
+// Answers by path suffix ("/health", "/prove"); an Error value makes fetch reject.
+function fakeProofServer(routes: Record<string, FakeReply | Error>): RecordedRequest[] {
   const requests: RecordedRequest[] = [];
   vi.stubGlobal("fetch", async (url: string, init: RequestInit = {}) => {
     requests.push({
@@ -32,6 +44,10 @@ function fakeServer(status: number, chunks: string[]): RecordedRequest[] {
       headers: new Headers(init.headers),
       body: init.body ? JSON.parse(init.body as string) : undefined,
     });
+    const suffix = Object.keys(routes).find((path) => url.endsWith(path));
+    const reply = suffix ? routes[suffix] : { status: 404, body: "Not found" };
+    if (reply instanceof Error) throw reply;
+    const chunks = reply.chunks ?? (reply.body !== undefined ? [reply.body] : []);
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -39,199 +55,186 @@ function fakeServer(status: number, chunks: string[]): RecordedRequest[] {
         controller.close();
       },
     });
-    return new Response(stream, { status });
+    return new Response(stream, { status: reply.status ?? 200, statusText: reply.statusText, headers: reply.headers });
   });
   return requests;
 }
 
-const LOCAL_DONE_EVENT = `event: done\ndata: ${JSON.stringify({
-  proof: "AAAAlocal",
+const DONE_EVENT = `event: done\ndata: ${JSON.stringify({
+  proof: "AAAAproof",
   proofFacts: ["0x0", "0x0", "0x5678"],
   l2ToL1Messages: [{ from_address: "0xabc", to_address: "0x0", payload: ["0x7"] }],
 })}\n\n`;
 
-describe("requestProof (local proof server)", () => {
-  beforeEach(() => {
-    process.env.PROVER = "local";
-    process.env.PROOF_SERVER_URL = "http://127.0.0.1:3030";
-    vi.spyOn(console, "log").mockImplementation(() => {});
+const far = () => Date.now() + 300_000;
+
+beforeEach(() => {
+  vi.spyOn(console, "log").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("checkProofServerHealth", () => {
+  it("returns null when the instance is on the expected network", async () => {
+    const requests = fakeProofServer({
+      "/health": { body: '{"ok":true,"network":"sepolia","queueLength":0,"running":0}' },
+    });
+
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBeNull();
+    expect(requests[0].url).toBe("http://192.168.1.26:3030/health");
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    delete process.env.PROVER;
-    delete process.env.PROOF_SERVER_URL;
+  it("names both networks on a mismatch", async () => {
+    fakeProofServer({ "/health": { body: '{"ok":true,"network":"mainnet"}' } });
+
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
+      "Proof server http://192.168.1.26:3030 proves mainnet, but this DApp runs on sepolia",
+    );
   });
 
-  it("posts the block and transaction to the local server and returns the proof of the done event", async () => {
-    const requests = fakeServer(200, [
-      'event: log\ndata: {"stream":"stdout","line":"proving"}\n\n',
-      LOCAL_DONE_EVENT.slice(0, 25),
-      LOCAL_DONE_EVENT.slice(25),
-    ]);
+  it("reports an unreachable server", async () => {
+    fakeProofServer({ "/health": new TypeError("fetch failed") });
 
-    const result = await requestProof(17029070, TX);
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
+      "Proof server http://192.168.1.26:3030 is unreachable: fetch failed",
+    );
+  });
+
+  it("reports an HTML 404 from the reverse proxy as unreachable", async () => {
+    fakeProofServer({ "/health": { status: 404, body: "Not found" } });
+
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
+      "Proof server http://192.168.1.26:3030 is unreachable: HTTP 404",
+    );
+  });
+
+  it("reports a server that is not ready", async () => {
+    fakeProofServer({ "/health": { body: '{"ok":false,"network":"sepolia"}' } });
+
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
+      "Proof server http://192.168.1.26:3030 reports it is not ready",
+    );
+  });
+});
+
+describe("requestProof", () => {
+  it("posts the block and transaction to <url>/prove and returns the done result", async () => {
+    const requests = fakeProofServer({
+      "/prove": {
+        chunks: ['event: log\ndata: {"stream":"stdout","line":"proving"}\n\n', DONE_EVENT.slice(0, 25), DONE_EVENT.slice(25)],
+      },
+    });
+
+    const result = await requestProof(17029070, TX, { target: TARGET, deadline: far() });
 
     expect(result).toEqual({
-      proof: "AAAAlocal",
+      proof: "AAAAproof",
       proofFacts: ["0x0", "0x0", "0x5678"],
       l2ToL1Messages: [{ from_address: "0xabc", to_address: "0x0", payload: ["0x7"] }],
     });
     expect(requests).toHaveLength(1);
     expect(requests[0].method).toBe("POST");
-    expect(requests[0].url).toBe("http://127.0.0.1:3030/prove");
+    expect(requests[0].url).toBe("http://192.168.1.26:3030/prove");
     expect(requests[0].body).toEqual({ blockNumber: 17029070, tx: TX });
   });
 
-  it("uses the local server when PROVER is not set", async () => {
-    delete process.env.PROVER;
-    const requests = fakeServer(200, [LOCAL_DONE_EVENT]);
+  it("sends the key as a Bearer token on the public listener", async () => {
+    const requests = fakeProofServer({ "/prove": { chunks: [DONE_EVENT] } });
 
-    await requestProof(17029070, TX);
+    await requestProof(1, TX, { target: PUBLIC, deadline: far() });
 
-    expect(requests[0].url).toBe("http://127.0.0.1:3030/prove");
+    expect(requests[0].url).toBe("https://proof.example/sepolia/prove");
+    expect(requests[0].headers.get("authorization")).toBe("Bearer s");
   });
 
-  it("returns an empty message list when the done event has no l2ToL1Messages", async () => {
-    fakeServer(200, [`event: done\ndata: ${JSON.stringify({ proof: "P", proofFacts: ["0x1"] })}\n\n`]);
+  it("sends no Authorization header without a key", async () => {
+    const requests = fakeProofServer({ "/prove": { chunks: [DONE_EVENT] } });
 
-    const result = await requestProof(17029070, TX);
+    await requestProof(1, TX, { target: TARGET, deadline: far() });
+
+    expect(requests[0].headers.get("authorization")).toBeNull();
+  });
+
+  it("builds the refusal message from reason, error and Retry-After", async () => {
+    fakeProofServer({
+      "/prove": {
+        status: 429,
+        headers: { "Retry-After": "3600" },
+        body: '{"reason":"quota_exceeded","error":"Daily quota used up"}',
+      },
+    });
+
+    await expect(requestProof(1, TX, { target: PUBLIC, deadline: far() })).rejects.toThrow(
+      "Proof server refused the request: 429 quota_exceeded — Daily quota used up; retry after 3600 s",
+    );
+  });
+
+  it("falls back to the status text when the refusal is not JSON", async () => {
+    fakeProofServer({ "/prove": { status: 502, statusText: "Bad Gateway", body: "<html>" } });
+
+    await expect(requestProof(1, TX, { target: PUBLIC, deadline: far() })).rejects.toThrow(
+      "Proof server refused the request: 502 Bad Gateway",
+    );
+  });
+
+  it("forwards queued and started in order", async () => {
+    const seen: ProofProgress[] = [];
+    fakeProofServer({
+      "/prove": {
+        chunks: ['event: queued\ndata: {"position":2,"etaSec":90}\n\n', "event: started\ndata: {}\n\n", DONE_EVENT],
+      },
+    });
+
+    await requestProof(1, TX, { target: TARGET, deadline: far(), onProgress: (p) => seen.push(p) });
+
+    expect(seen).toEqual([{ type: "queued", position: 2, etaSec: 90 }, { type: "started" }]);
+  });
+
+  it("stops when the announced wait exceeds the budget", async () => {
+    fakeProofServer({
+      "/prove": { chunks: ['event: queued\ndata: {"position":9,"etaSec":900}\n\n', DONE_EVENT] },
+    });
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: Date.now() + 60_000 })).rejects.toThrow(
+      "Proof server queue is too long (~900 s); try again later",
+    );
+  });
+
+  it("fails with the message of an error event", async () => {
+    fakeProofServer({ "/prove": { chunks: ['event: error\ndata: {"message":"prover crashed"}\n\n'] } });
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: far() })).rejects.toThrow(
+      "Proof server error: prover crashed",
+    );
+  });
+
+  it("fails when the stream ends without done", async () => {
+    fakeProofServer({ "/prove": { chunks: [] } });
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: far() })).rejects.toThrow(
+      "Proof server returned no result",
+    );
+  });
+
+  it("returns an empty message list when done has no l2ToL1Messages", async () => {
+    fakeProofServer({
+      "/prove": { chunks: [`event: done\ndata: ${JSON.stringify({ proof: "P", proofFacts: ["0x1"] })}\n\n`] },
+    });
+
+    const result = await requestProof(1, TX, { target: TARGET, deadline: far() });
 
     expect(result.l2ToL1Messages).toEqual([]);
   });
 
-  it("throws the message of the error event", async () => {
-    fakeServer(200, ['event: error\ndata: {"message":"snip36 exited with code 1"}\n\n']);
+  it("logs the proving duration", async () => {
+    fakeProofServer({ "/prove": { chunks: [DONE_EVENT] } });
 
-    await expect(requestProof(17029070, TX)).rejects.toThrow(/snip36 exited with code 1/);
-  });
-
-  it("throws with the HTTP status when the local server refuses the request", async () => {
-    fakeServer(400, ['{"error":"blockNumber and tx are required"}']);
-
-    const call = requestProof(17029070, TX);
-
-    await expect(call).rejects.toThrow(/400/);
-    await expect(call).rejects.toThrow(/blockNumber and tx are required/);
-  });
-
-  it("logs the local proving duration", async () => {
-    fakeServer(200, [LOCAL_DONE_EVENT]);
-
-    await requestProof(17029070, TX);
+    await requestProof(1, TX, { target: TARGET, deadline: far() });
 
     const logged = vi.mocked(console.log).mock.calls.map((args) => args.join(" ")).join("\n");
-    expect(logged).toMatch(/local proof server.*\d+\.\d s/i);
-  });
-
-  it("refuses an unknown PROVER value instead of calling a server", async () => {
-    process.env.PROVER = "starkscan";
-    const requests = fakeServer(200, [LOCAL_DONE_EVENT]);
-
-    await expect(requestProof(17029070, TX)).rejects.toThrow(/PROVER/);
-    expect(requests).toHaveLength(0);
-  });
-});
-
-describe("requestProof (proof gateway)", () => {
-  beforeEach(() => {
-    process.env.PROVER = "gateway";
-    process.env.PROOF_GATEWAY_URL = "https://gateway.example";
-    process.env.PROOF_GATEWAY_API_KEY = "gw-key";
-    vi.spyOn(console, "log").mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    delete process.env.PROVER;
-    delete process.env.PROOF_GATEWAY_URL;
-    delete process.env.PROOF_GATEWAY_API_KEY;
-  });
-
-  it("sends a starknet_proveTransaction JSON-RPC request with the API key and returns the proof", async () => {
-    const requests = fakeServer(200, [
-      JSON.stringify({
-        result: {
-          jsonrpc: "2.0",
-          id: 1,
-          result: {
-            proof: "AAAAgateway",
-            proofFacts: ["0x0", "0x9"],
-            l2ToL1Messages: [{ from_address: "0xabc", to_address: "0x0", payload: ["0x8"] }],
-          },
-        },
-        remaining_quota: -1,
-      }),
-    ]);
-
-    const result = await requestProof(17029070, TX);
-
-    expect(result).toEqual({
-      proof: "AAAAgateway",
-      proofFacts: ["0x0", "0x9"],
-      l2ToL1Messages: [{ from_address: "0xabc", to_address: "0x0", payload: ["0x8"] }],
-    });
-    expect(requests).toHaveLength(1);
-    expect(requests[0].method).toBe("POST");
-    expect(requests[0].url).toBe("https://gateway.example/v1/prove");
-    expect(requests[0].headers.get("x-api-key")).toBe("gw-key");
-    expect(requests[0].body).toEqual({
-      payload: {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "starknet_proveTransaction",
-        params: { block_id: { block_number: 17029070 }, transaction: TX },
-      },
-    });
-  });
-
-  it("accepts snake_case result keys", async () => {
-    fakeServer(200, [
-      JSON.stringify({
-        result: {
-          jsonrpc: "2.0",
-          id: 1,
-          result: {
-            proof: "AAAAgateway",
-            proof_facts: ["0x0", "0x9"],
-            l2_to_l1_messages: [{ from_address: "0xabc", to_address: "0x0", payload: ["0x8"] }],
-          },
-        },
-      }),
-    ]);
-
-    const result = await requestProof(17029070, TX);
-
-    expect(result.proofFacts).toEqual(["0x0", "0x9"]);
-    expect(result.l2ToL1Messages).toEqual([{ from_address: "0xabc", to_address: "0x0", payload: ["0x8"] }]);
-  });
-
-  it("throws with the HTTP status and body when the gateway refuses the request", async () => {
-    fakeServer(502, [
-      '{"detail":"Prover JSON-RPC error -32603: Internal error: Transaction execution failed: Failed to convert block header to block info: Invalid Starknet version: [0, 14, 4]"}',
-    ]);
-
-    const call = requestProof(17029070, TX);
-
-    await expect(call).rejects.toThrow(/502/);
-    await expect(call).rejects.toThrow(/Invalid Starknet version/);
-  });
-
-  it("throws the JSON-RPC error returned by the prover", async () => {
-    fakeServer(200, [
-      JSON.stringify({ result: { jsonrpc: "2.0", id: 1, error: { code: 55, message: "Account validation failed" } } }),
-    ]);
-
-    await expect(requestProof(17029070, TX)).rejects.toThrow(/Account validation failed/);
-  });
-
-  it("refuses to call the gateway without its URL", async () => {
-    delete process.env.PROOF_GATEWAY_URL;
-    const requests = fakeServer(200, ["{}"]);
-
-    await expect(requestProof(17029070, TX)).rejects.toThrow(/PROOF_GATEWAY_URL/);
-    expect(requests).toHaveLength(0);
+    expect(logged).toMatch(/proof server.*\d+\.\d s/i);
   });
 });

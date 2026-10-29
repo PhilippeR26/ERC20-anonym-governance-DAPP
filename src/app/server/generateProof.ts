@@ -3,8 +3,10 @@
 import { Account, Contract, RpcProvider, CallData } from "starknet";
 import type { Abi, ResourceBoundsBN } from "starknet";
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
-import { requestProof } from "./requestProof";
+import { checkProofServerHealth, requestProof } from "./requestProof";
+import { getProofServerTarget, SUBMISSION_MARGIN_MS, VOTE_BUDGET_MS } from "./serverConfig";
 import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG } from "@/app/utils/constants";
+import { NETWORK } from "@/app/utils/network";
 import governorAbi from "@/app/abi/governor.json";
 
 type AnonVoteMessage = {
@@ -20,6 +22,11 @@ export async function generateProof(
   voterAddress: string,
   signature: string[],
 ): Promise<{ transaction_hash: string }> {
+  const startedAt = Date.now();
+  const target = getProofServerTarget();
+  const healthProblem = await checkProofServerHealth(target, NETWORK.name);
+  if (healthProblem) throw new Error(healthProblem);
+
   const myProvider = new RpcProvider({ nodeUrl: process.env.RPC_URL! });
   const backend = new Account({
     provider: myProvider,
@@ -53,7 +60,10 @@ export async function generateProof(
   const nonce = await backend.getNonce(referenceBlock);
   const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n, nonce });
   console.log(`Proof reference block: ${referenceBlock} (head - ${REFERENCE_BLOCK_LAG})`);
-  const result = await requestProof(referenceBlock, tx);
+  const result = await requestProof(referenceBlock, tx, {
+    target,
+    deadline: startedAt + VOTE_BUDGET_MS - SUBMISSION_MARGIN_MS,
+  });
 
   if (!result.l2ToL1Messages[0])
     throw new Error("Proof server returned no L2→L1 message — cannot decode public vote message");
