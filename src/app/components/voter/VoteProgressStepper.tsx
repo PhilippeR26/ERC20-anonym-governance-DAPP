@@ -59,7 +59,7 @@ export default function VoteProgressStepper({ step, errorMessage, txHash }: Prop
         <Text fontSize="xs" color="gray.400" mt={2}>
           Tx:{" "}
           <a
-            href={`https://sepolia.starkscan.co/tx/${txHash}`}
+            href={`https://starkscan.co/tx/${txHash}`}
             target="_blank"
             rel="noreferrer"
             style={{ color: "var(--chakra-colors-indigo-400)", textDecoration: "underline" }}

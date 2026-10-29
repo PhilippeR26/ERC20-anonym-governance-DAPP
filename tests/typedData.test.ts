@@ -4,17 +4,18 @@ import { typedData } from "starknet";
 
 describe("buildAnonVoteTypedData", () => {
   it("returns correct primaryType and domain", () => {
-    const td = buildAnonVoteTypedData("0xabc", 1);
+    const td = buildAnonVoteTypedData("0xabc", 1, "SN_MAIN");
     expect(td.primaryType).toBe("AnonVoteIntent");
     expect(td.domain.name).toBe("AnonGovernor");
     expect(td.domain.version).toBe("1");
-    expect(td.domain.chainId).toBe("SN_SEPOLIA");
+    expect(td.domain.chainId).toBe("SN_MAIN");
   });
 
   it("encodes proposal_id and support as strings in message", () => {
-    const td = buildAnonVoteTypedData("0xabc", 2);
-    expect(td.message.proposal_id).toBe("0xabc");
-    expect(td.message.support).toBe("2");
+    const td = buildAnonVoteTypedData("0xabc", 2, "SN_MAIN");
+    const msg = td.message as { proposal_id: string; support: string };
+    expect(msg.proposal_id).toBe("0xabc");
+    expect(msg.support).toBe("2");
   });
 
   it("produces deterministic type hash", () => {

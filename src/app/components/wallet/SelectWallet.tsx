@@ -9,7 +9,7 @@ import {
   StackSeparator,
 } from "@chakra-ui/react";
 import { useDisclosure } from "@chakra-ui/react";
-import { WalletAccountV5, RpcProvider, validateAndParseAddress } from "starknet";
+import { WalletAccountV6, RpcProvider, validateAndParseAddress } from "starknet";
 import { createStore } from "@starknet-io/get-starknet-discovery";
 import {
   isStarknetWallet,
@@ -37,7 +37,7 @@ export default function SelectWallet() {
 
     const rpcProvider = new RpcProvider({ nodeUrl: "/api/rpc" });
 
-    const wa = await WalletAccountV5.connect(rpcProvider, wallet);
+    const wa = await WalletAccountV6.connect(rpcProvider, wallet);
 
     const accounts = (await wallet.features["starknet:walletApi"].request({
       type: "wallet_requestAccounts",

@@ -36,24 +36,9 @@ export default function Home() {
           fontSize="sm"
           color="red.400"
         >
-          Wrong network. Please switch your wallet to Starknet Sepolia.
+          Wrong network. Please switch your wallet to Starknet Mainnet.
         </Box>
       )}
-
-      <Box
-        bg="#2d1f00"
-        borderBottom="1px solid"
-        borderColor="yellow.800"
-        px={5}
-        py={2}
-        fontSize="sm"
-        color="yellow.400"
-      >
-        A local proof server must be running on{" "}
-        <Box as="code" fontFamily="mono">
-          http://localhost:3030
-        </Box>
-      </Box>
 
       <Box maxW="720px" mx="auto" py={4} px={4}>
         <AdminBlock />

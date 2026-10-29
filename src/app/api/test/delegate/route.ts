@@ -2,8 +2,8 @@
 // Usage: GET /api/test/delegate?target=0x<voter_address>
 // Delegates the backend account's tokens to the given address.
 
-import { Account, Contract, RpcProvider } from "starknetFork";
-import type { Abi } from "starknetFork";
+import { Account, Contract, RpcProvider } from "starknet";
+import type { Abi } from "starknet";
 import { TOKEN_ADDRESS } from "@/app/utils/constants";
 import tokenAbi from "@/app/abi/token.json";
 

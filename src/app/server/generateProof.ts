@@ -1,10 +1,10 @@
 "use server";
 
-import { Account, Contract, RpcProvider, CallData } from "starknetFork";
-import type { Abi, ResourceBoundsBN, UniversalDetails } from "starknetFork";
+import { Account, Contract, RpcProvider, CallData } from "starknet";
+import type { Abi, ResourceBoundsBN } from "starknet";
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
 import { requestProof } from "./requestProof";
-import { GOVERNOR_ADDRESS } from "@/app/utils/constants";
+import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG } from "@/app/utils/constants";
 import governorAbi from "@/app/abi/governor.json";
 
 type AnonVoteMessage = {
@@ -39,31 +39,23 @@ export async function generateProof(
     private_input: { signature },
   });
 
-  // Manual resource bounds — automatic fee estimation is impossible without broadcasting
-  // the tx. Values from 28.testGovernance2Proof.ts with 2× buffer.
-  const gasPrices = await myProvider.getGasPrices();
-  const PRICE_MULT = 2n;
-  const AMOUNT_MULT = 2n;
+  // Virtual transaction: the prover requires a max possible fee of zero, so all gas
+  // *prices* and the tip must be 0. But the gas *amounts* must be non-zero, or the
+  // account's __validate__ panics with 'Out of gas' before create_proof runs.
+  // Amounts from 28.testGovernance2Proof.ts with 3× buffer (from Testnet fee estimate).
   const resourceBounds: ResourceBoundsBN = {
-    l2_gas: {
-      max_amount: BigInt("0x279fc0") * AMOUNT_MULT,
-      max_price_per_unit: gasPrices.l2GasPrice * PRICE_MULT,
-    },
-    l1_gas: {
-      max_amount: BigInt("0xbd2a") * AMOUNT_MULT,
-      max_price_per_unit: gasPrices.l1GasPrice * PRICE_MULT,
-    },
-    l1_data_gas: {
-      max_amount: BigInt("0xc0") * AMOUNT_MULT,
-      max_price_per_unit: gasPrices.l1DataGasPrice * PRICE_MULT,
-    },
+    l2_gas: { max_amount: BigInt("0x279fc0") * 3n, max_price_per_unit: 0n },
+    l1_gas: { max_amount: BigInt("0xbd2a") * 3n, max_price_per_unit: 0n },
+    l1_data_gas: { max_amount: BigInt("0xc0") * 3n, max_price_per_unit: 0n },
   };
 
-  const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds });
-  const currentBlock = await myProvider.getBlockNumber();
-  const result = await requestProof(currentBlock, tx);
+  const referenceBlock = (await myProvider.getBlockNumber()) - REFERENCE_BLOCK_LAG;
+  const nonce = await backend.getNonce(referenceBlock);
+  const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n, nonce });
+  console.log(`Proof reference block: ${referenceBlock} (head - ${REFERENCE_BLOCK_LAG})`);
+  const result = await requestProof(referenceBlock, tx);
 
-  if (!result.l2ToL1Messages?.[0])
+  if (!result.l2ToL1Messages[0])
     throw new Error("Proof server returned no L2→L1 message — cannot decode public vote message");
   const cd = new CallData(governorAbi as Abi);
   const publicMessage = cd.decodeParameters(
@@ -75,6 +67,6 @@ export async function generateProof(
   const { transaction_hash } = await backend.execute(castCall, {
     proof: result.proof,
     proofFacts: result.proofFacts,
-  } as UniversalDetails);
+  });
   return { transaction_hash };
 }

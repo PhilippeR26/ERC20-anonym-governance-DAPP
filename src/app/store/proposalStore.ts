@@ -16,6 +16,10 @@ export type ProposalState =
   | "Executed"
   | null;
 
+const CLOSED_STATES: ProposalState[] = ["Canceled", "Defeated", "Succeeded", "Queued", "Executed"];
+
+export const isProposalClosed = (state: ProposalState) => CLOSED_STATES.includes(state);
+
 interface ProposalStoreState {
   proposalId: string | null;
   description: string;
@@ -66,10 +70,7 @@ export const useProposalStore = create<ProposalStoreState>()(
           const stateEnum = await gov.state(proposalId) as CairoCustomEnum;
           const proposalState = stateEnum.activeVariant() as ProposalState;
 
-          if (
-            proposalState &&
-            ["Canceled", "Defeated", "Succeeded", "Queued", "Executed"].includes(proposalState)
-          ) {
+          if (isProposalClosed(proposalState)) {
             set({
               proposalState,
               quorumReached: Boolean(await gov.quorum_reached(proposalId)),
