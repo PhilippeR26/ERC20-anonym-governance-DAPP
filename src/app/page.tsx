@@ -6,6 +6,7 @@ import AdminBlock from "@/app/components/admin/AdminBlock";
 import VoterBlock from "@/app/components/voter/VoterBlock";
 import NetworkBadge from "@/app/components/network/NetworkBadge";
 import WrongNetworkBanner from "@/app/components/network/WrongNetworkBanner";
+import ConfigBanner from "@/app/components/network/ConfigBanner";
 
 export default function Home() {
   return (
@@ -28,6 +29,7 @@ export default function Home() {
         <ConnectWallet />
       </Flex>
 
+      <ConfigBanner />
       <WrongNetworkBanner />
 
       <Box maxW="720px" mx="auto" py={4} px={4}>
