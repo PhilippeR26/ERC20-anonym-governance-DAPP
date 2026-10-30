@@ -1,11 +1,5 @@
-import { RpcError, type CairoCustomEnum, type Call, type Contract, type RpcProvider } from "starknet";
-
-// A contract that panics makes the node answer error 40 with the reason as a short string: "0x4e75… ('Nullifier already used')".
-// When the failing call is nested (the voter's account), the innermost reason comes last.
-function contractReason(e: unknown): string | undefined {
-  if (!(e instanceof RpcError) || !e.isType("CONTRACT_ERROR")) return undefined;
-  return [...JSON.stringify(e.baseError.data ?? "").matchAll(/\('([^']*)'\)/g)].at(-1)?.[1];
-}
+import type { CairoCustomEnum, Call, Contract, RpcProvider } from "starknet";
+import { contractReason } from "./contractReason";
 
 // Free reads that tell, before a proof is asked for, whether the vote can succeed. create_proof does not check that the
 // proposal is Active (only cast_anonymous_vote does): without the state check, one signature could be replayed on a

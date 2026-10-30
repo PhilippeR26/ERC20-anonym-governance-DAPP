@@ -1,14 +1,9 @@
-import { Account, Contract, RpcProvider, CallData } from "starknet";
+import { Contract, CallData } from "starknet";
 import type { Abi, ResourceBoundsBN } from "starknet";
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
 import { checkProofServerHealth, requestProof } from "./requestProof";
-import {
-  getBackendAccountConfig,
-  getProofServerTarget,
-  getRpcUrl,
-  SUBMISSION_MARGIN_MS,
-  VOTE_BUDGET_MS,
-} from "./serverConfig";
+import { getProofServerTarget, SUBMISSION_MARGIN_MS, VOTE_BUDGET_MS } from "./serverConfig";
+import { getSponsor } from "./sponsor";
 import { checkVoteRequest } from "./voteGuard";
 import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG } from "@/app/utils/constants";
 import { NETWORK } from "@/app/utils/network";
@@ -28,13 +23,7 @@ export async function runVote(
   signal?: AbortSignal,
 ): Promise<string> {
   const startedAt = Date.now();
-  const myProvider = new RpcProvider({ nodeUrl: getRpcUrl() });
-  const backendAccount = getBackendAccountConfig();
-  const backend = new Account({
-    provider: myProvider,
-    address: backendAccount.address,
-    signer: backendAccount.privateKey,
-  });
+  const { provider: myProvider, account: backend } = getSponsor();
   const gov = new Contract({
     abi: governorAbi as Abi,
     address: GOVERNOR_ADDRESS,

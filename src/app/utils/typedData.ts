@@ -29,3 +29,39 @@ export function buildAnonVoteTypedData(proposalId: string, support: number, chai
     },
   };
 }
+
+export const DELEGATION_TYPES: TypedData["types"] = {
+  StarknetDomain: ANON_VOTE_INTENT_TYPES.StarknetDomain,
+  Delegation: [
+    { name: "verifying_contract", type: "ContractAddress" },
+    { name: "delegatee",          type: "ContractAddress" },
+    { name: "nonce",              type: "felt" },
+    { name: "expiry",             type: "u128" },  // the token's expiry is a u64, but OpenZeppelin types it u128 (SNIP-12 has no u64)
+  ],
+};
+
+// The message the token verifies in delegate_by_sig; its domain is the token's SNIP12Metadata (name 'GovToken', version '1').
+export function buildDelegationTypedData(args: {
+  token: string;
+  delegatee: string;
+  nonce: string;
+  expiry: number;
+  chainId: string;
+}): TypedData {
+  return {
+    types: DELEGATION_TYPES,
+    primaryType: "Delegation",
+    domain: {
+      name: "GovToken",
+      version: CairoBytes31.fromText("1").toHexString(),
+      chainId: args.chainId,
+      revision: "1",
+    },
+    message: {
+      verifying_contract: args.token,
+      delegatee: args.delegatee,
+      nonce: args.nonce,
+      expiry: String(args.expiry),
+    },
+  };
+}

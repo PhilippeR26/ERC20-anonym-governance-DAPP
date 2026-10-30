@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { buildAnonVoteTypedData, ANON_VOTE_INTENT_TYPES } from "../src/app/utils/typedData";
-import { typedData } from "starknet";
+import {
+  buildAnonVoteTypedData,
+  buildDelegationTypedData,
+  ANON_VOTE_INTENT_TYPES,
+  DELEGATION_TYPES,
+} from "../src/app/utils/typedData";
+import { typedData, TypedDataRevision } from "starknet";
 
 describe("buildAnonVoteTypedData", () => {
   it("returns correct primaryType and domain", () => {
@@ -23,5 +28,28 @@ describe("buildAnonVoteTypedData", () => {
     const h2 = typedData.getTypeHash(ANON_VOTE_INTENT_TYPES, "AnonVoteIntent");
     expect(h1).toBe(h2);
     expect(h1).toBe("0x3922ad5e771b8914790ce766e38fd8ccfd7c4ee9712f51052372b9f3ee584a");
+  });
+});
+
+describe("buildDelegationTypedData", () => {
+  it("has the type hash of OpenZeppelin's Delegation", () => {
+    // DELEGATION_TYPE_HASH of packages/governance/src/votes/delegation.cairo, in the OpenZeppelin fork the contracts build with
+    expect(typedData.getTypeHash(DELEGATION_TYPES, "Delegation", TypedDataRevision.ACTIVE)).toBe(
+      "0x29444c6b338056aafe1802658864510c2651f5cd23897cb7b7edafe5b126d4f",
+    );
+  });
+
+  it("builds the message the token verifies", () => {
+    const td = buildDelegationTypedData({
+      token: "0x7",
+      delegatee: "0x9",
+      nonce: "0x3",
+      expiry: 1700000000,
+      chainId: "SN_SEPOLIA",
+    });
+
+    expect(td.primaryType).toBe("Delegation");
+    expect(td.domain).toEqual({ name: "GovToken", version: "0x31", chainId: "SN_SEPOLIA", revision: "1" });
+    expect(td.message).toEqual({ verifying_contract: "0x7", delegatee: "0x9", nonce: "0x3", expiry: "1700000000" });
   });
 });
