@@ -46,15 +46,24 @@ export async function checkProofServerHealth(
 export async function requestProof(
   referenceBlock: number,
   tx: INVOKE_TXN_V3,
-  options: { target: ProofServerTarget; deadline: number; onProgress?: (p: ProofProgress) => void },
+  options: {
+    target: ProofServerTarget;
+    deadline: number;
+    onProgress?: (p: ProofProgress) => void;
+    signal?: AbortSignal;
+  },
 ): Promise<ProveResult> {
-  const { target, deadline, onProgress } = options;
+  const { target, deadline, onProgress, signal } = options;
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
   }, Math.max(0, deadline - Date.now()));
+  // The caller's signal (the browser left) cancels the request too: the proof server drops a job when its client disconnects.
+  const abortOnSignal = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", abortOnSignal, { once: true });
   const startedAt = Date.now();
 
   try {
@@ -112,7 +121,10 @@ export async function requestProof(
     if (timedOut) throw new Error("Proof server did not answer within the time budget");
     throw e;
   } finally {
+    // Whatever the way out (including an error thrown by onProgress), release the proof server's queue slot.
+    controller.abort();
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abortOnSignal);
   }
 }
 

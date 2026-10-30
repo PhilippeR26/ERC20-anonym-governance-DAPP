@@ -21,7 +21,11 @@ type AnonVoteMessage = {
   weight: string;
 };
 
-export async function runVote(input: VoteInput, emit: (e: VoteProgressEvent) => void): Promise<string> {
+export async function runVote(
+  input: VoteInput,
+  emit: (e: VoteProgressEvent) => void,
+  signal?: AbortSignal,
+): Promise<string> {
   const startedAt = Date.now();
   const target = getProofServerTarget();
   const healthProblem = await checkProofServerHealth(target, NETWORK.name);
@@ -65,6 +69,7 @@ export async function runVote(input: VoteInput, emit: (e: VoteProgressEvent) => 
     target,
     deadline: startedAt + VOTE_BUDGET_MS - SUBMISSION_MARGIN_MS,
     onProgress: emit,
+    signal,
   });
   emit({ type: "proved" });
 

@@ -7,5 +7,5 @@ export const maxDuration = 300;
 
 export async function POST(request: Request) {
   const input = (await request.json()) as VoteInput;
-  return voteResponse((emit) => runVote(input, emit));
+  return voteResponse((emit, signal) => runVote(input, emit, signal));
 }

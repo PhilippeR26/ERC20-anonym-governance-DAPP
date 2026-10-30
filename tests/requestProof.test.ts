@@ -238,3 +238,52 @@ describe("requestProof", () => {
     expect(logged).toMatch(/proof server.*\d+\.\d s/i);
   });
 });
+
+describe("requestProof cancellation", () => {
+  // A proof-server stream that stays open after one queued event until the request is aborted.
+  function hangingServer(): { aborted: () => boolean } {
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit = {}) => {
+      requestSignal = init.signal as AbortSignal;
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('event: queued\ndata: {"position":1,"etaSec":10}\n\n'));
+          requestSignal!.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
+        },
+      });
+      return new Response(stream, { status: 200 });
+    });
+    return { aborted: () => requestSignal?.aborted === true };
+  }
+
+  it("aborts the proof-server request when the caller's signal aborts", { timeout: 2000 }, async () => {
+    const server = hangingServer();
+    const caller = new AbortController();
+
+    const call = requestProof(1, TX, {
+      target: TARGET,
+      deadline: far(),
+      signal: caller.signal,
+      onProgress: () => caller.abort(),
+    });
+
+    await expect(call).rejects.toThrow();
+    expect(server.aborted()).toBe(true);
+  });
+
+  it("aborts the proof-server request when onProgress throws", { timeout: 2000 }, async () => {
+    const server = hangingServer();
+
+    const call = requestProof(1, TX, {
+      target: TARGET,
+      deadline: far(),
+      onProgress: () => {
+        throw new Error("client gone");
+      },
+    });
+
+    await expect(call).rejects.toThrow("client gone");
+    expect(server.aborted()).toBe(true);
+  });
+});
