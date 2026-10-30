@@ -1,12 +1,16 @@
 "use client";
 
 import { Box } from "@chakra-ui/react";
-import DelegationPanel from "./DelegationPanel";
 import VotePanel from "./VotePanel";
+import AnonymityCheck from "./AnonymityCheck";
+import VoteResults from "@/app/components/admin/VoteResults";
 import { useWalletStore } from "@/app/store/walletStore";
+import { useProposalStore } from "@/app/store/proposalStore";
 
 export default function VoterBlock() {
   const { isConnected, wrongNetwork } = useWalletStore();
+  // VotePanel is remounted for each proposal: no step or error of the previous one may show.
+  const proposalId = useProposalStore((state) => state.proposalId);
   if (!isConnected || wrongNetwork) return null;
 
   return (
@@ -29,8 +33,9 @@ export default function VoterBlock() {
         Voter
       </Box>
       <Box bg="#111a11" p={5}>
-        <DelegationPanel />
-        <VotePanel />
+        <VotePanel key={proposalId ?? "none"} />
+        <VoteResults />
+        <AnonymityCheck />
       </Box>
     </Box>
   );

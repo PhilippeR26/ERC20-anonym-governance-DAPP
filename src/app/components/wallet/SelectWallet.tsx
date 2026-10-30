@@ -15,6 +15,7 @@ import { WalletAccountV6, RpcProvider, validateAndParseAddress } from "starknet"
 import { createStore, type Store } from "@starknet-io/get-starknet-discovery";
 import type { WalletWithStarknetFeatures } from "@starknet-io/get-starknet-wallet-standard/features";
 import { useWalletStore } from "@/app/store/walletStore";
+import { useProposalStore } from "@/app/store/proposalStore";
 import { NETWORK } from "@/app/utils/network";
 import { checkCompatibility } from "@/app/utils/walletCompatibility";
 
@@ -55,6 +56,8 @@ export default function SelectWallet() {
       type: "wallet_requestChainId",
     })) as string;
 
+    // A connection starts a new journey: nothing of the previous one may show.
+    useProposalStore.getState().clearProposal();
     setWalletAccount(wa);
     setProvider(rpcProvider);
     setWalletWSF(wallet);

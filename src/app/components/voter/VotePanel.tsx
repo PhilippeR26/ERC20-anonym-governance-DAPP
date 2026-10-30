@@ -11,6 +11,7 @@ import { readVoteStream, type VoteInput } from "@/app/utils/voteEvents";
 import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG, CHAIN_POLL_INTERVAL_MS } from "@/app/utils/constants";
 import governorAbi from "@/app/abi/governor.json";
 import VoteProgressStepper, { type VoteStep } from "./VoteProgressStepper";
+import { VoteSignatureGuide } from "./SignatureGuides";
 
 const CHOICES = [
   { value: 1, label: "✓ For",     colorPalette: "green", textColor: "green.400" },
@@ -28,7 +29,7 @@ export default function VotePanel() {
   const [activeChoice, setActiveChoice] = useState<Choice | null>(null);
 
   const { walletAccount, walletWSF, address, chainId, provider } = useWalletStore();
-  const { proposalId, description, proposalState, refreshFromChain } = useProposalStore();
+  const { proposalId, description, proposalState, refreshFromChain, setVoteTx } = useProposalStore();
   const [voteWindow, setVoteWindow] = useState<{ snapshot: number; deadline: number }>();
   const [headBlock, setHeadBlock] = useState<number>();
 
@@ -50,11 +51,12 @@ export default function VotePanel() {
 
   const isActive = proposalState === "Active";
   // The proof's reference block (head - lag) must be inside the voting window.
+  const firstVotingBlock = voteWindow ? voteWindow.snapshot + REFERENCE_BLOCK_LAG + 1 : undefined;
+  const windowPassed = voteWindow !== undefined && headBlock !== undefined && headBlock > voteWindow.deadline;
   const referenceBlockInWindow =
-    voteWindow !== undefined &&
-    headBlock !== undefined &&
-    headBlock - REFERENCE_BLOCK_LAG > voteWindow.snapshot &&
-    headBlock <= voteWindow.deadline;
+    firstVotingBlock !== undefined && headBlock !== undefined && headBlock >= firstVotingBlock && !windowPassed;
+  // The state is read separately from the head block: a passed deadline means closed before the state says so.
+  const votingOver = closed || windowPassed;
 
   async function handleVote(choice: Choice) {
     if (!walletAccount || !walletWSF || !proposalId || !address || !chainId) return;
@@ -101,6 +103,7 @@ export default function VotePanel() {
       await provider!.waitForTransaction(transaction_hash);
 
       setTxHash(transaction_hash);
+      setVoteTx(proposalId, transaction_hash);
       setVoteStep("done");
       await refreshFromChain();
     } catch (err: unknown) {
@@ -114,7 +117,7 @@ export default function VotePanel() {
       {description && (
         <Box mb={3}>
           <Text fontSize="sm" color="gray.400" mb={1}>
-            Active proposal
+            Proposal
           </Text>
           <Text fontSize="md" fontWeight="medium" color="gray.100">
             {description}
@@ -122,10 +125,23 @@ export default function VotePanel() {
         </Box>
       )}
 
-      {!isActive && proposalState && (
+      {!votingOver && (voteStep === "idle" || voteStep === "signing") && <VoteSignatureGuide proposalId={proposalId} />}
+
+      {votingOver ? (
         <Text fontSize="sm" color="gray.500" mb={3}>
-          Voting is {proposalState === "Pending" ? "not yet open" : "closed"}.
+          Voting is closed.
         </Text>
+      ) : (
+        voteStep === "idle" &&
+        !(isActive && referenceBlockInWindow) && (
+          <Text fontSize="sm" color="gray.400" mb={3}>
+            Waiting for the voting window to open
+            {firstVotingBlock !== undefined && headBlock !== undefined
+              ? ` (block ${firstVotingBlock}, now ${headBlock})`
+              : ""}
+            …
+          </Text>
+        )
       )}
 
       <Box display="flex" gap={3}>
@@ -148,6 +164,15 @@ export default function VotePanel() {
           <Text as="span" fontWeight="semibold" color={activeChoice.textColor}>
             {activeChoice.label}
           </Text>
+          {voteStep === "signing" && (
+            <>
+              {" "}
+              — your wallet must show Support{" "}
+              <Text as="span" fontWeight="semibold" color="gray.200">
+                {activeChoice.value}
+              </Text>
+            </>
+          )}
         </Text>
       )}
 

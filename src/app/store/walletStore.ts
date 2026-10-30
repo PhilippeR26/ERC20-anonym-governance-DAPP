@@ -14,6 +14,7 @@ interface WalletState {
   provider: RpcProvider | undefined;
   walletWSF: WalletWithStarknetFeatures | undefined;
   displaySelectWalletUI: boolean;
+  votingPower: bigint | null;
 
   setConnected: (v: boolean) => void;
   setAddress: (v: string) => void;
@@ -22,6 +23,7 @@ interface WalletState {
   setProvider: (v: RpcProvider) => void;
   setWalletWSF: (v: WalletWithStarknetFeatures) => void;
   setDisplaySelectWalletUI: (v: boolean) => void;
+  setVotingPower: (address: string, v: bigint | null) => void;
   disconnect: () => void;
 }
 
@@ -34,6 +36,7 @@ export const useWalletStore = create<WalletState>((set) => ({
   provider: undefined,
   walletWSF: undefined,
   displaySelectWalletUI: false,
+  votingPower: null,
 
   setConnected: (v) => set({ isConnected: v }),
   setAddress: (v) => set({ address: v }),
@@ -42,6 +45,8 @@ export const useWalletStore = create<WalletState>((set) => ({
   setProvider: (v) => set({ provider: v }),
   setWalletWSF: (v) => set({ walletWSF: v }),
   setDisplaySelectWalletUI: (v) => set({ displaySelectWalletUI: v }),
+  // A reading that arrives after its account was disconnected belongs to a finished journey.
+  setVotingPower: (address, v) => set((state) => (state.address === address ? { votingPower: v } : {})),
   disconnect: () =>
     set({
       isConnected: false,
@@ -51,5 +56,6 @@ export const useWalletStore = create<WalletState>((set) => ({
       walletAccount: undefined,
       walletWSF: undefined,
       displaySelectWalletUI: false,
+      votingPower: null,
     }),
 }));

@@ -2,34 +2,38 @@
 
 import { useState } from "react";
 import { Box, Button, Text, Textarea } from "@chakra-ui/react";
-import { Contract, type Abi } from "starknet";
+import type { CreatedProposal } from "@/app/server/createProposal";
 import { useWalletStore } from "@/app/store/walletStore";
-import { useProposalStore } from "@/app/store/proposalStore";
-import { hashProposal } from "@/app/utils/hashProposal";
-import { GOVERNOR_ADDRESS } from "@/app/utils/constants";
-import governorAbi from "@/app/abi/governor.json";
+import { useProposalStore, isProposalClosed } from "@/app/store/proposalStore";
+import { postJson } from "@/app/utils/postJson";
+import { DESCRIPTION_MAX_LENGTH } from "@/app/utils/constants";
 
 export default function ProposeForm() {
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<"idle" | "pending" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string>();
 
-  const { walletAccount, isConnected, provider } = useWalletStore();
-  const { proposalId, setProposal } = useProposalStore();
+  const { isConnected, address, provider, votingPower } = useWalletStore();
+  const { proposalId, proposalState, setProposal } = useProposalStore();
 
-  if (!isConnected || proposalId) return null;
+  if (!isConnected || (proposalId && !isProposalClosed(proposalState))) return null;
+
+  const hasPower = votingPower !== null && votingPower > 0n;
 
   async function handleLaunchVote() {
-    if (!walletAccount || !description.trim()) return;
+    if (!provider || !description.trim()) return;
     setStatus("pending");
+    setErrorMessage(undefined);
     try {
-      const gov = new Contract({ abi: governorAbi as Abi, address: GOVERNOR_ADDRESS, providerOrAccount: walletAccount });
-      const call = gov.populate("propose", { calls: [], description });
-      const { transaction_hash } = await walletAccount.execute(call);
-      await provider!.waitForTransaction(transaction_hash);
-      setProposal(hashProposal(description), description);
-    } catch (err) {
-      console.error(err);
+      const created = await postJson<CreatedProposal>("/api/propose", { description });
+      await provider.waitForTransaction(created.transactionHash);
+      // A proposal confirmed after its wallet was disconnected belongs to a finished journey.
+      if (useWalletStore.getState().address !== address) return;
+      setProposal(created.proposalId, created.description, created.transactionHash);
+      setStatus("idle");
+    } catch (err: unknown) {
       setStatus("error");
+      setErrorMessage(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -42,6 +46,7 @@ export default function ProposeForm() {
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Describe the vote…"
+        maxLength={DESCRIPTION_MAX_LENGTH}
         mb={3}
         bg="#1a1a3a"
         borderColor="whiteAlpha.200"
@@ -50,15 +55,38 @@ export default function ProposeForm() {
       <Button
         colorPalette="indigo"
         loading={status === "pending"}
-        disabled={!description.trim() || status === "pending"}
+        disabled={!description.trim() || status !== "idle" || !hasPower}
         onClick={handleLaunchVote}
       >
         Launch vote
       </Button>
-      {status === "error" && (
-        <Text color="red.400" fontSize="sm" mt={2}>
-          Transaction failed. Check console.
+      {!hasPower && (
+        <Text fontSize="sm" color="gray.500" mt={2}>
+          Get your voting power first: it must exist before a vote is created.
         </Text>
+      )}
+      {status === "pending" && (
+        <Text fontSize="sm" color="gray.400" mt={2}>
+          The sponsor is creating the vote…
+        </Text>
+      )}
+      {status === "error" && (
+        <Box mt={2}>
+          <Text color="red.400" fontSize="sm">
+            Error: {errorMessage ?? "Unknown error"}
+          </Text>
+          <Button
+            size="sm"
+            variant="ghost"
+            mt={2}
+            onClick={() => {
+              setStatus("idle");
+              setErrorMessage(undefined);
+            }}
+          >
+            Try again
+          </Button>
+        </Box>
       )}
     </Box>
   );

@@ -3,6 +3,7 @@
 import { Box, Flex, Text } from "@chakra-ui/react";
 import ConnectWallet from "@/app/components/wallet/ConnectWallet";
 import AdminBlock from "@/app/components/admin/AdminBlock";
+import DelegationPanel from "@/app/components/voter/DelegationPanel";
 import VoterBlock from "@/app/components/voter/VoterBlock";
 import NetworkBadge from "@/app/components/network/NetworkBadge";
 import WrongNetworkBanner from "@/app/components/network/WrongNetworkBanner";
@@ -33,6 +34,7 @@ export default function Home() {
       <WrongNetworkBanner />
 
       <Box maxW="720px" mx="auto" py={4} px={4}>
+        <DelegationPanel />
         <AdminBlock />
         <VoterBlock />
       </Box>

@@ -1,13 +1,16 @@
 "use client";
 
+import { Fragment } from "react";
 import { Box } from "@chakra-ui/react";
 import ProposeForm from "./ProposeForm";
 import ProposalStatus from "./ProposalStatus";
-import VoteResults from "./VoteResults";
 import { useWalletStore } from "@/app/store/walletStore";
+import { useProposalStore } from "@/app/store/proposalStore";
 
 export default function AdminBlock() {
   const { isConnected, wrongNetwork } = useWalletStore();
+  // Both panels are remounted for each proposal: no text, error or block count of the previous one may show.
+  const proposalId = useProposalStore((state) => state.proposalId);
   if (!isConnected || wrongNetwork) return null;
 
   return (
@@ -31,9 +34,10 @@ export default function AdminBlock() {
         Administrator
       </Box>
       <Box bg="#12122a" p={5}>
-        <ProposeForm />
-        <ProposalStatus />
-        <VoteResults />
+        <Fragment key={proposalId ?? "none"}>
+          <ProposeForm />
+          <ProposalStatus />
+        </Fragment>
       </Box>
     </Box>
   );
