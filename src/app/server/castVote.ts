@@ -9,6 +9,7 @@ import {
   SUBMISSION_MARGIN_MS,
   VOTE_BUDGET_MS,
 } from "./serverConfig";
+import { checkVoteRequest } from "./voteGuard";
 import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG } from "@/app/utils/constants";
 import { NETWORK } from "@/app/utils/network";
 import type { VoteInput, VoteProgressEvent } from "@/app/utils/voteEvents";
@@ -27,10 +28,6 @@ export async function runVote(
   signal?: AbortSignal,
 ): Promise<string> {
   const startedAt = Date.now();
-  const target = getProofServerTarget();
-  const healthProblem = await checkProofServerHealth(target, NETWORK.name);
-  if (healthProblem) throw new Error(healthProblem);
-
   const myProvider = new RpcProvider({ nodeUrl: getRpcUrl() });
   const backendAccount = getBackendAccountConfig();
   const backend = new Account({
@@ -50,6 +47,14 @@ export async function runVote(
     voter: input.voterAddress,
     private_input: { signature: input.signature },
   });
+
+  // Free reads first: a vote the contract would refuse must reach neither the proof server (small daily quota) nor its health check.
+  const refusal = await checkVoteRequest(myProvider, gov, input.proposalId, call);
+  if (refusal) throw new Error(refusal);
+
+  const target = getProofServerTarget();
+  const healthProblem = await checkProofServerHealth(target, NETWORK.name);
+  if (healthProblem) throw new Error(healthProblem);
 
   // Virtual transaction: the prover requires a max possible fee of zero, so all gas
   // *prices* and the tip must be 0. But the gas *amounts* must be non-zero, or the

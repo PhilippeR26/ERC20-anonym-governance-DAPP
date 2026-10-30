@@ -27,7 +27,15 @@ The deployed GovToken and AnonGovernor addresses of each network are built into 
 
 `NEXT_PUBLIC_NETWORK` is read at build time: restart `npm run dev` after changing it.
 
-**Deploying on Vercel** — **[Not validated]** not tried yet. `NEXT_PUBLIC_*` values are inlined into the browser bundle at build time, so changing the network means changing the variable and redeploying, or keeping one Vercel project per network. The vote route declares `maxDuration = 300` seconds, **[Not validated]** the limit of the most restrictive Vercel plan (Hobby with Fluid compute); a proof takes 40–50 s plus any wait in the proof server's queue. The local-network proof server cannot be reached from Vercel: use the public address and an API key.
+**Deploying on Vercel** — **[Not validated]** not tried yet.
+
+- **One Vercel project per network.** `NEXT_PUBLIC_*` values are inlined into the browser bundle at build time, so changing the network means changing the variable and redeploying; to serve both networks, create two projects from the same repository with different variables.
+- **Variables**: those of `.env.local.example`. The red banner at the top of the page lists the ones that are missing. The DApp always uses the proof server's public address and its API key: the local-network listener of the proof server is not used.
+- **Duration.** The vote route declares `maxDuration = 300` seconds. According to the Vercel documentation (read on 2026-10-30, page updated 2026-08-24), with Fluid compute (enabled by default) 300 s is the maximum of the Hobby plan (800 s on Pro). A proof takes 40–50 s plus any wait in the proof server's queue. The documentation does not say what the browser receives when a streamed response is stopped at the limit, and the vote stream sends nothing while the proof is computed: **[Not validated]** whether an intermediary cuts such a silence.
+- **The two public routes use the server's keys for whoever calls them.**
+  - `/api/vote` does free on-chain reads first (the proposal is Active, and `create_proof` runs as a read: voter signature, voting power at the snapshot, nullifier unused), so a request the contract would refuse never reaches the proof server or its daily quota. A valid request sent again while its vote is not yet recorded can still cost extra proofs; the proof server caps this (2 simultaneous requests and a daily quota per site).
+  - `/api/rpc` relays only the six methods the DApp uses, and `starknet_call` only on the governor and the token; anything else gets a JSON-RPC error and a warning in the server log.
+  - Neither route limits the number of requests: each refused request still costs a few Alchemy reads, within Alchemy's own limits.
 
 ---
 
