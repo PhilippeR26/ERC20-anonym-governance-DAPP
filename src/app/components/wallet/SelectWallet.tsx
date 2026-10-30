@@ -111,7 +111,7 @@ export default function SelectWallet() {
 
   useEffect(() => {
     onOpen();
-  }, []);
+  }, [onOpen]);
 
   return (
     <Dialog.Root

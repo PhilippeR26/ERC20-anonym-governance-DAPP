@@ -18,7 +18,6 @@ export default function ProposalStatus() {
     if (!proposalId || closed) return;
 
     async function init() {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gov = new Contract({ abi: governorAbi as Abi, address: GOVERNOR_ADDRESS, providerOrAccount: provider });
       const dead = Number(await gov.proposal_deadline(proposalId!));
       const cur = await provider.getBlockNumber();
@@ -35,7 +34,7 @@ export default function ProposalStatus() {
     }, CHAIN_POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [proposalId, closed]);
+  }, [proposalId, closed, refreshFromChain]);
 
   if (!proposalId) {
     return (

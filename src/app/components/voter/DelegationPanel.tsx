@@ -20,7 +20,11 @@ export default function DelegationPanel() {
   }
 
   useEffect(() => {
+    // fetchVotingPower sets the state only after an await, which the rule cannot see.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchVotingPower();
+    // Re-read when the wallet or the address changes only: fetchVotingPower is a new function on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walletAccount, address]);
 
   async function handleDelegate() {

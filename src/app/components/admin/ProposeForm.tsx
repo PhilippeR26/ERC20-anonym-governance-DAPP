@@ -22,7 +22,6 @@ export default function ProposeForm() {
     if (!walletAccount || !description.trim()) return;
     setStatus("pending");
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gov = new Contract({ abi: governorAbi as Abi, address: GOVERNOR_ADDRESS, providerOrAccount: walletAccount });
       const call = gov.populate("propose", { calls: [], description });
       const { transaction_hash } = await walletAccount.execute(call);
