@@ -4,7 +4,7 @@ export type Env = Record<string, string | undefined>;
 
 export class ConfigError extends Error {}
 
-export type ProofServerTarget = { url: string; apiKey?: string };
+export type ProofServerTarget = { url: string; apiKey: string };
 
 export const VOTE_BUDGET_MS = 300_000;
 export const SUBMISSION_MARGIN_MS = 30_000;
@@ -43,18 +43,12 @@ export function getBackendAccountConfig(
 }
 
 export function getProofServerTarget(env: Env = process.env, network: NetworkConfig = NETWORK): ProofServerTarget {
-  // TEMPORARY: LAN proof server for the user's tests, remove before production
-  if (env.PROOF_SERVER_INSTANCE_URL) {
-    return { url: withoutTrailingSlash(env.PROOF_SERVER_INSTANCE_URL), apiKey: undefined };
-  }
   const base = withoutTrailingSlash(required(env, "PROOF_SERVER_URL", network));
-  return { url: `${base}/${network.proofInstancePath}`, apiKey: env.PROOF_SERVER_API_KEY || undefined };
+  return { url: `${base}/${network.proofInstancePath}`, apiKey: required(env, "PROOF_SERVER_API_KEY", network) };
 }
 
 export function listConfigProblems(env: Env = process.env, network: NetworkConfig = NETWORK): string[] {
   const backend = backendVariables(network);
-  const names = ["ALCHEMY_API_KEY", backend.address, backend.privateKey];
-  // TEMPORARY: LAN proof server for the user's tests, remove before production
-  if (!env.PROOF_SERVER_INSTANCE_URL) names.push("PROOF_SERVER_URL", "PROOF_SERVER_API_KEY");
+  const names = ["ALCHEMY_API_KEY", backend.address, backend.privateKey, "PROOF_SERVER_URL", "PROOF_SERVER_API_KEY"];
   return names.filter((name) => !env[name]).map((name) => missingMessage(name, network));
 }

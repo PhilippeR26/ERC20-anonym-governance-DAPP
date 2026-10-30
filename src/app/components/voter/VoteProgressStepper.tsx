@@ -54,8 +54,7 @@ export default function VoteProgressStepper({ step, errorMessage, txHash, queue 
               {done ? "✓" : active ? "⟳" : "○"}{" "}
               {key === "generating" && active && queue
                 ? `Waiting in proof-server queue: position ${queue.position} (~${queue.etaSec} s)`
-                : label}
-              {active && "…"}
+                : `${label}${active ? "…" : ""}`}
             </Text>
           );
         })

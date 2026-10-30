@@ -18,27 +18,36 @@ export type ProveResult = {
 
 export const HEALTH_TIMEOUT_MS = 10_000;
 
+// The queued event's etaSec only counts the proofs ahead of the request: its own proof comes on top
+// (38 to 49 s measured, 60 s while the server has no history).
+const PROOF_DURATION_ESTIMATE_SEC = 60;
+
 // Proof server v2 (secure-voty proofServer): GET /health, then POST /prove answered by a Server-Sent Events stream.
 export async function checkProofServerHealth(
   target: ProofServerTarget,
   expected: NetworkName,
 ): Promise<string | null> {
+  // The problem reaches the visitors (configuration banner, vote errors): the server address stays in the server log.
+  const problem = (message: string) => {
+    console.error(`[proof-server] ${target.url}: ${message}`);
+    return message;
+  };
   let response: Response;
   try {
     response = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
   } catch (e) {
-    return `Proof server ${target.url} is unreachable: ${errorText(e)}`;
+    return problem(`Proof server is unreachable: ${errorText(e)}`);
   }
-  if (!response.ok) return `Proof server ${target.url} is unreachable: HTTP ${response.status}`;
+  if (!response.ok) return problem(`Proof server refused the health check: ${await refusalDetail(response)}`);
   let health: { ok?: boolean; network?: string };
   try {
     health = await response.json();
   } catch {
-    return `Proof server ${target.url} is unreachable: not a proof server answer`;
+    return problem("Proof server is unreachable: not a proof server answer");
   }
-  if (!health.ok) return `Proof server ${target.url} reports it is not ready`;
+  if (!health.ok) return problem("Proof server reports it is not ready");
   if (health.network !== expected) {
-    return `Proof server ${target.url} proves ${health.network}, but this DApp runs on ${expected}`;
+    return problem(`Proof server proves ${health.network}, but this DApp runs on ${expected}`);
   }
   return null;
 }
@@ -67,16 +76,20 @@ export async function requestProof(
   const startedAt = Date.now();
 
   try {
-    const response = await fetch(`${target.url}/prove`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
-      },
-      body: JSON.stringify({ blockNumber: referenceBlock, tx }),
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(await refusalMessage(response));
+    let response: Response;
+    try {
+      response = await fetch(`${target.url}/prove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${target.apiKey}` },
+        body: JSON.stringify({ blockNumber: referenceBlock, tx }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      // A timeout or the caller leaving aborts the request and is reported below; anything else is the network.
+      if (controller.signal.aborted) throw e;
+      throw new Error(`Proof server is unreachable: ${errorText(e)}`);
+    }
+    if (!response.ok) throw new Error(`Proof server refused the request: ${await refusalDetail(response)}`);
 
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
@@ -96,7 +109,7 @@ export async function requestProof(
         if (!event || !data) continue;
         const payload = JSON.parse(data);
         if (event === "queued") {
-          if (Date.now() + payload.etaSec * 1000 > deadline) {
+          if (Date.now() + (payload.etaSec + PROOF_DURATION_ESTIMATE_SEC) * 1000 > deadline) {
             // The proof server cancels a queued job as soon as its client disconnects.
             controller.abort();
             throw new Error(`Proof server queue is too long (~${payload.etaSec} s); try again later`);
@@ -128,7 +141,8 @@ export async function requestProof(
   }
 }
 
-async function refusalMessage(response: Response): Promise<string> {
+// Status, reason and message of a refusal ("403 banned — …"), with the delay when the server gives one.
+async function refusalDetail(response: Response): Promise<string> {
   let reason = response.statusText;
   let error = "";
   try {
@@ -140,14 +154,17 @@ async function refusalMessage(response: Response): Promise<string> {
   }
   const retryAfter = response.headers.get("retry-after");
   return (
-    `Proof server refused the request: ${response.status}${reason ? ` ${reason}` : ""}` +
+    `${response.status}${reason ? ` ${reason}` : ""}` +
     (error ? ` — ${error}` : "") +
     (retryAfter ? `; retry after ${retryAfter} s` : "")
   );
 }
 
+// undici reports a failed connection as "fetch failed": the useful code (ECONNREFUSED, ENOTFOUND…) is in the cause.
 function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  const message = e instanceof Error ? e.message : String(e);
+  const code = (e as { cause?: { code?: unknown } } | null)?.cause?.code;
+  return typeof code === "string" ? `${message} (${code})` : message;
 }
 
 function seconds(ms: number): string {

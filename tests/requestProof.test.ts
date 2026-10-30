@@ -22,8 +22,10 @@ const TX = {
   fee_data_availability_mode: "L1",
 } as INVOKE_TXN_V3;
 
-const TARGET = { url: "http://192.168.1.26:3030" };
-const PUBLIC = { url: "https://proof.example/sepolia", apiKey: "s" };
+const TARGET = { url: "https://proof.example/sepolia", apiKey: "s" };
+
+// What undici throws when the connection fails: the useful code is in the cause.
+const connectionRefused = () => Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
 
 type RecordedRequest = { url: string; method: string; headers: Headers; body: unknown };
 type FakeReply = {
@@ -70,6 +72,7 @@ const far = () => Date.now() + 300_000;
 
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -84,39 +87,68 @@ describe("checkProofServerHealth", () => {
     });
 
     expect(await checkProofServerHealth(TARGET, "sepolia")).toBeNull();
-    expect(requests[0].url).toBe("http://192.168.1.26:3030/health");
+    expect(requests[0].url).toBe("https://proof.example/sepolia/health");
   });
 
-  it("names both networks on a mismatch", async () => {
+  it("names both networks on a mismatch, without the server address", async () => {
     fakeProofServer({ "/health": { body: '{"ok":true,"network":"mainnet"}' } });
 
     expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
-      "Proof server http://192.168.1.26:3030 proves mainnet, but this DApp runs on sepolia",
+      "Proof server proves mainnet, but this DApp runs on sepolia",
     );
   });
 
   it("reports an unreachable server", async () => {
     fakeProofServer({ "/health": new TypeError("fetch failed") });
 
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe("Proof server is unreachable: fetch failed");
+  });
+
+  it("adds the cause code of a network failure", async () => {
+    fakeProofServer({ "/health": connectionRefused() });
+
     expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
-      "Proof server http://192.168.1.26:3030 is unreachable: fetch failed",
+      "Proof server is unreachable: fetch failed (ECONNREFUSED)",
     );
   });
 
-  it("reports an HTML 404 from the reverse proxy as unreachable", async () => {
+  it("reports an HTML 404 from the reverse proxy by its status", async () => {
     fakeProofServer({ "/health": { status: 404, body: "Not found" } });
 
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe("Proof server refused the health check: 404");
+  });
+
+  it("keeps the reason and the message of a refused health check", async () => {
+    fakeProofServer({
+      "/health": { status: 403, body: '{"reason":"banned","error":"Too many wrong keys"}' },
+    });
+
     expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
-      "Proof server http://192.168.1.26:3030 is unreachable: HTTP 404",
+      "Proof server refused the health check: 403 banned — Too many wrong keys",
     );
   });
 
   it("reports a server that is not ready", async () => {
     fakeProofServer({ "/health": { body: '{"ok":false,"network":"sepolia"}' } });
 
+    expect(await checkProofServerHealth(TARGET, "sepolia")).toBe("Proof server reports it is not ready");
+  });
+
+  it("reports an answer that is not JSON", async () => {
+    fakeProofServer({ "/health": { body: "<html>" } });
+
     expect(await checkProofServerHealth(TARGET, "sepolia")).toBe(
-      "Proof server http://192.168.1.26:3030 reports it is not ready",
+      "Proof server is unreachable: not a proof server answer",
     );
+  });
+
+  it("keeps the server address in the server log", async () => {
+    fakeProofServer({ "/health": { body: '{"ok":true,"network":"mainnet"}' } });
+
+    await checkProofServerHealth(TARGET, "sepolia");
+
+    const logged = vi.mocked(console.error).mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(logged).toContain("https://proof.example/sepolia");
   });
 });
 
@@ -137,25 +169,16 @@ describe("requestProof", () => {
     });
     expect(requests).toHaveLength(1);
     expect(requests[0].method).toBe("POST");
-    expect(requests[0].url).toBe("http://192.168.1.26:3030/prove");
+    expect(requests[0].url).toBe("https://proof.example/sepolia/prove");
     expect(requests[0].body).toEqual({ blockNumber: 17029070, tx: TX });
   });
 
-  it("sends the key as a Bearer token on the public listener", async () => {
-    const requests = fakeProofServer({ "/prove": { chunks: [DONE_EVENT] } });
-
-    await requestProof(1, TX, { target: PUBLIC, deadline: far() });
-
-    expect(requests[0].url).toBe("https://proof.example/sepolia/prove");
-    expect(requests[0].headers.get("authorization")).toBe("Bearer s");
-  });
-
-  it("sends no Authorization header without a key", async () => {
+  it("sends the key as a Bearer token", async () => {
     const requests = fakeProofServer({ "/prove": { chunks: [DONE_EVENT] } });
 
     await requestProof(1, TX, { target: TARGET, deadline: far() });
 
-    expect(requests[0].headers.get("authorization")).toBeNull();
+    expect(requests[0].headers.get("authorization")).toBe("Bearer s");
   });
 
   it("builds the refusal message from reason, error and Retry-After", async () => {
@@ -167,7 +190,7 @@ describe("requestProof", () => {
       },
     });
 
-    await expect(requestProof(1, TX, { target: PUBLIC, deadline: far() })).rejects.toThrow(
+    await expect(requestProof(1, TX, { target: TARGET, deadline: far() })).rejects.toThrow(
       "Proof server refused the request: 429 quota_exceeded — Daily quota used up; retry after 3600 s",
     );
   });
@@ -175,8 +198,16 @@ describe("requestProof", () => {
   it("falls back to the status text when the refusal is not JSON", async () => {
     fakeProofServer({ "/prove": { status: 502, statusText: "Bad Gateway", body: "<html>" } });
 
-    await expect(requestProof(1, TX, { target: PUBLIC, deadline: far() })).rejects.toThrow(
+    await expect(requestProof(1, TX, { target: TARGET, deadline: far() })).rejects.toThrow(
       "Proof server refused the request: 502 Bad Gateway",
+    );
+  });
+
+  it("reports a proof server that cannot be reached, with the cause code", async () => {
+    fakeProofServer({ "/prove": connectionRefused() });
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: far() })).rejects.toThrow(
+      "Proof server is unreachable: fetch failed (ECONNREFUSED)",
     );
   });
 
@@ -201,6 +232,27 @@ describe("requestProof", () => {
     await expect(requestProof(1, TX, { target: TARGET, deadline: Date.now() + 60_000 })).rejects.toThrow(
       "Proof server queue is too long (~900 s); try again later",
     );
+  });
+
+  // etaSec only counts the proofs ahead: the request's own proof (about 40-50 s) comes on top.
+  it("stops when the wait leaves no room for the proof itself", async () => {
+    fakeProofServer({
+      "/prove": { chunks: ['event: queued\ndata: {"position":5,"etaSec":250}\n\n', DONE_EVENT] },
+    });
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: far() })).rejects.toThrow(
+      "Proof server queue is too long (~250 s); try again later",
+    );
+  });
+
+  it("waits when the wait leaves room for the proof itself", async () => {
+    fakeProofServer({
+      "/prove": { chunks: ['event: queued\ndata: {"position":4,"etaSec":200}\n\n', DONE_EVENT] },
+    });
+
+    const result = await requestProof(1, TX, { target: TARGET, deadline: far() });
+
+    expect(result.proof).toBe("AAAAproof");
   });
 
   it("fails with the message of an error event", async () => {
@@ -240,15 +292,15 @@ describe("requestProof", () => {
 });
 
 describe("requestProof cancellation", () => {
-  // A proof-server stream that stays open after one queued event until the request is aborted.
-  function hangingServer(): { aborted: () => boolean } {
+  // A proof-server stream that stays open (after an optional queued event) until the request is aborted.
+  function hangingServer(queuedData: string | null = '{"position":1,"etaSec":10}'): { aborted: () => boolean } {
     let requestSignal: AbortSignal | undefined;
     vi.stubGlobal("fetch", async (_url: string, init: RequestInit = {}) => {
       requestSignal = init.signal as AbortSignal;
       const encoder = new TextEncoder();
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-          controller.enqueue(encoder.encode('event: queued\ndata: {"position":1,"etaSec":10}\n\n'));
+          if (queuedData) controller.enqueue(encoder.encode(`event: queued\ndata: ${queuedData}\n\n`));
           requestSignal!.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
         },
       });
@@ -284,6 +336,24 @@ describe("requestProof cancellation", () => {
     });
 
     await expect(call).rejects.toThrow("client gone");
+    expect(server.aborted()).toBe(true);
+  });
+
+  it("aborts the proof-server request when the queue is too long", { timeout: 2000 }, async () => {
+    const server = hangingServer('{"position":9,"etaSec":900}');
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: Date.now() + 60_000 })).rejects.toThrow(
+      "Proof server queue is too long (~900 s); try again later",
+    );
+    expect(server.aborted()).toBe(true);
+  });
+
+  it("reports the time budget and aborts the request when the deadline passes", { timeout: 2000 }, async () => {
+    const server = hangingServer(null);
+
+    await expect(requestProof(1, TX, { target: TARGET, deadline: Date.now() + 50 })).rejects.toThrow(
+      "Proof server did not answer within the time budget",
+    );
     expect(server.aborted()).toBe(true);
   });
 });
