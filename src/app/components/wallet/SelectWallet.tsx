@@ -7,6 +7,7 @@ import {
   Image,
   VStack,
   StackSeparator,
+  Text,
 } from "@chakra-ui/react";
 import { useDisclosure } from "@chakra-ui/react";
 import { WalletAccountV6, RpcProvider, validateAndParseAddress } from "starknet";
@@ -16,6 +17,7 @@ import {
   type WalletWithStarknetFeatures,
 } from "@starknet-io/get-starknet-wallet-standard/features";
 import { useWalletStore } from "@/app/store/walletStore";
+import { NETWORK } from "@/app/utils/network";
 
 export default function SelectWallet() {
   const { open, onOpen, onClose } = useDisclosure();
@@ -78,6 +80,9 @@ export default function SelectWallet() {
             <Dialog.Title>Select a wallet</Dialog.Title>
           </Dialog.Header>
           <Dialog.Body>
+            <Text fontSize="sm" color="gray.400" mb={3}>
+              Connect a wallet on {NETWORK.walletName}
+            </Text>
             <VStack separator={<StackSeparator />} gap={3} mb={4} align="stretch">
               {wallets.map((wallet, i) => (
                 <Button

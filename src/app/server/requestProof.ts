@@ -1,5 +1,8 @@
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
 import type { BigNumberish } from "starknet";
+import type { NetworkName } from "@/app/utils/network";
+import type { ProofProgress } from "@/app/utils/voteEvents";
+import type { ProofServerTarget } from "./serverConfig";
 
 type ProofMessage = {
   from_address: BigNumberish;
@@ -13,101 +16,138 @@ export type ProveResult = {
   l2ToL1Messages: ProofMessage[];
 };
 
-const LOCAL_MAX_WAIT_MS = 10 * 60_000;
-const GATEWAY_TIMEOUT_MS = 120_000;
+export const HEALTH_TIMEOUT_MS = 10_000;
 
-// PROVER selects the proof server: "local" (default) or "gateway".
-export async function requestProof(
-  currentBlock: number,
-  tx: INVOKE_TXN_V3,
-): Promise<ProveResult> {
-  const prover = process.env.PROVER ?? "local";
-  if (prover === "local") return requestLocalProof(currentBlock, tx);
-  if (prover === "gateway") return requestGatewayProof(currentBlock, tx);
-  throw new Error(`Unknown PROVER "${prover}" (expected "local" or "gateway")`);
-}
-
-// Local snip36 proof server (secure-voty/proofServer): answers with a Server-Sent Events stream.
-async function requestLocalProof(currentBlock: number, tx: INVOKE_TXN_V3): Promise<ProveResult> {
-  const proofServerUrl = process.env.PROOF_SERVER_URL ?? "http://localhost:3030";
-  const startedAt = Date.now();
-  const response = await fetch(`${proofServerUrl}/prove`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ blockNumber: currentBlock, tx }),
-    signal: AbortSignal.timeout(LOCAL_MAX_WAIT_MS),
-  });
-  if (!response.ok) throw new Error(`Local proof server HTTP ${response.status}: ${await response.text()}`);
-
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let proofRes: { proof: string; proofFacts: BigNumberish[]; l2ToL1Messages?: ProofMessage[] } | undefined;
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const messages = buffer.split("\n\n");
-    buffer = messages.pop() ?? "";
-
-    for (const message of messages) {
-      const event = message.match(/^event: (\w+)/)?.[1];
-      const data = message.match(/^data: (.+)$/m)?.[1];
-      if (!event || !data) continue;
-      const payload = JSON.parse(data);
-      if (event === "log") console.log(`[proof-server][${payload.stream}]`, payload.line);
-      if (event === "done") proofRes = payload;
-      if (event === "error") throw new Error(`Local proof server error: ${payload.message}`);
-    }
+// Proof server v2 (secure-voty proofServer): GET /health, then POST /prove answered by a Server-Sent Events stream.
+export async function checkProofServerHealth(
+  target: ProofServerTarget,
+  expected: NetworkName,
+): Promise<string | null> {
+  let response: Response;
+  try {
+    response = await fetch(`${target.url}/health`, { signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS) });
+  } catch (e) {
+    return `Proof server ${target.url} is unreachable: ${errorText(e)}`;
   }
-
-  console.log(`Local proof server: ${proofRes ? "done" : "no result"} after ${seconds(Date.now() - startedAt)}`);
-  if (!proofRes) throw new Error("Local proof server returned no result");
-  return {
-    proof: proofRes.proof,
-    proofFacts: proofRes.proofFacts,
-    l2ToL1Messages: proofRes.l2ToL1Messages ?? [],
-  };
+  if (!response.ok) return `Proof server ${target.url} is unreachable: HTTP ${response.status}`;
+  let health: { ok?: boolean; network?: string };
+  try {
+    health = await response.json();
+  } catch {
+    return `Proof server ${target.url} is unreachable: not a proof server answer`;
+  }
+  if (!health.ok) return `Proof server ${target.url} reports it is not ready`;
+  if (health.network !== expected) {
+    return `Proof server ${target.url} proves ${health.network}, but this DApp runs on ${expected}`;
+  }
+  return null;
 }
 
-// Remote SNIP-36 prover gateway (Starknet Foundation): JSON-RPC starknet_proveTransaction.
-async function requestGatewayProof(currentBlock: number, tx: INVOKE_TXN_V3): Promise<ProveResult> {
-  const gatewayUrl = process.env.PROOF_GATEWAY_URL;
-  if (!gatewayUrl) throw new Error("PROOF_GATEWAY_URL is not set");
-  const apiKey = process.env.PROOF_GATEWAY_API_KEY;
-
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers["x-api-key"] = apiKey;
-
+export async function requestProof(
+  referenceBlock: number,
+  tx: INVOKE_TXN_V3,
+  options: {
+    target: ProofServerTarget;
+    deadline: number;
+    onProgress?: (p: ProofProgress) => void;
+    signal?: AbortSignal;
+  },
+): Promise<ProveResult> {
+  const { target, deadline, onProgress, signal } = options;
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, Math.max(0, deadline - Date.now()));
+  // The caller's signal (the browser left) cancels the request too: the proof server drops a job when its client disconnects.
+  const abortOnSignal = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", abortOnSignal, { once: true });
   const startedAt = Date.now();
-  const response = await fetch(`${gatewayUrl}/v1/prove`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      payload: {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "starknet_proveTransaction",
-        params: { block_id: { block_number: currentBlock }, transaction: tx },
-      },
-    }),
-    signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
-  });
-  console.log(`Proof gateway: HTTP ${response.status} after ${seconds(Date.now() - startedAt)}`);
-  if (!response.ok) throw new Error(`Proof gateway HTTP ${response.status}: ${await response.text()}`);
 
-  const data = await response.json();
-  const rpc = data.result;
-  if (!rpc) throw new Error(`Proof gateway returned no result: ${JSON.stringify(data)}`);
-  if (rpc.error) throw new Error(`Proof gateway RPC error: ${JSON.stringify(rpc.error)}`);
-  if (!rpc.result) throw new Error(`Proof gateway RPC: missing result field: ${JSON.stringify(rpc)}`);
-  const r = rpc.result;
-  return {
-    proof: r.proof,
-    proofFacts: r.proofFacts ?? r.proof_facts ?? [],
-    l2ToL1Messages: r.l2ToL1Messages ?? r.l2_to_l1_messages ?? [],
-  };
+  try {
+    const response = await fetch(`${target.url}/prove`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
+      },
+      body: JSON.stringify({ blockNumber: referenceBlock, tx }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(await refusalMessage(response));
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let proofRes: { proof: string; proofFacts: BigNumberish[]; l2ToL1Messages?: ProofMessage[] } | undefined;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const messages = buffer.split("\n\n");
+      buffer = messages.pop() ?? "";
+
+      for (const message of messages) {
+        const event = message.match(/^event: (\w+)/)?.[1];
+        const data = message.match(/^data: (.+)$/m)?.[1];
+        if (!event || !data) continue;
+        const payload = JSON.parse(data);
+        if (event === "queued") {
+          if (Date.now() + payload.etaSec * 1000 > deadline) {
+            // The proof server cancels a queued job as soon as its client disconnects.
+            controller.abort();
+            throw new Error(`Proof server queue is too long (~${payload.etaSec} s); try again later`);
+          }
+          onProgress?.({ type: "queued", position: payload.position, etaSec: payload.etaSec });
+        }
+        if (event === "started") onProgress?.({ type: "started" });
+        if (event === "log") console.log(`[proof-server][${payload.stream}]`, payload.line);
+        if (event === "done") proofRes = payload;
+        if (event === "error") throw new Error(`Proof server error: ${payload.message}`);
+      }
+    }
+
+    console.log(`Proof server ${target.url}: ${proofRes ? "done" : "no result"} after ${seconds(Date.now() - startedAt)}`);
+    if (!proofRes) throw new Error("Proof server returned no result");
+    return {
+      proof: proofRes.proof,
+      proofFacts: proofRes.proofFacts,
+      l2ToL1Messages: proofRes.l2ToL1Messages ?? [],
+    };
+  } catch (e) {
+    if (timedOut) throw new Error("Proof server did not answer within the time budget");
+    throw e;
+  } finally {
+    // Whatever the way out (including an error thrown by onProgress), release the proof server's queue slot.
+    controller.abort();
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abortOnSignal);
+  }
+}
+
+async function refusalMessage(response: Response): Promise<string> {
+  let reason = response.statusText;
+  let error = "";
+  try {
+    const body = (await response.json()) as { reason?: string; error?: string };
+    reason = body.reason ?? reason;
+    error = body.error ?? "";
+  } catch {
+    // not JSON (e.g. a reverse-proxy page): the status is all there is
+  }
+  const retryAfter = response.headers.get("retry-after");
+  return (
+    `Proof server refused the request: ${response.status}${reason ? ` ${reason}` : ""}` +
+    (error ? ` — ${error}` : "") +
+    (retryAfter ? `; retry after ${retryAfter} s` : "")
+  );
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 function seconds(ms: number): string {

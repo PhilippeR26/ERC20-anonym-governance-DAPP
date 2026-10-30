@@ -1,10 +1,17 @@
-"use server";
-
 import { Account, Contract, RpcProvider, CallData } from "starknet";
 import type { Abi, ResourceBoundsBN } from "starknet";
 import type { INVOKE_TXN_V3 } from "@starknet-io/types-js";
-import { requestProof } from "./requestProof";
+import { checkProofServerHealth, requestProof } from "./requestProof";
+import {
+  getBackendAccountConfig,
+  getProofServerTarget,
+  getRpcUrl,
+  SUBMISSION_MARGIN_MS,
+  VOTE_BUDGET_MS,
+} from "./serverConfig";
 import { GOVERNOR_ADDRESS, REFERENCE_BLOCK_LAG } from "@/app/utils/constants";
+import { NETWORK } from "@/app/utils/network";
+import type { VoteInput, VoteProgressEvent } from "@/app/utils/voteEvents";
 import governorAbi from "@/app/abi/governor.json";
 
 type AnonVoteMessage = {
@@ -14,17 +21,22 @@ type AnonVoteMessage = {
   weight: string;
 };
 
-export async function generateProof(
-  proposalId: string,
-  support: number,
-  voterAddress: string,
-  signature: string[],
-): Promise<{ transaction_hash: string }> {
-  const myProvider = new RpcProvider({ nodeUrl: process.env.RPC_URL! });
+export async function runVote(
+  input: VoteInput,
+  emit: (e: VoteProgressEvent) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const startedAt = Date.now();
+  const target = getProofServerTarget();
+  const healthProblem = await checkProofServerHealth(target, NETWORK.name);
+  if (healthProblem) throw new Error(healthProblem);
+
+  const myProvider = new RpcProvider({ nodeUrl: getRpcUrl() });
+  const backendAccount = getBackendAccountConfig();
   const backend = new Account({
     provider: myProvider,
-    address: process.env.BACKEND_ACCOUNT_ADDRESS!,
-    signer: process.env.BACKEND_ACCOUNT_PRIVATE_KEY!,
+    address: backendAccount.address,
+    signer: backendAccount.privateKey,
   });
   const gov = new Contract({
     abi: governorAbi as Abi,
@@ -33,10 +45,10 @@ export async function generateProof(
   });
 
   const call = gov.populate("create_proof", {
-    proposal_id: proposalId,
-    support,
-    voter: voterAddress,
-    private_input: { signature },
+    proposal_id: input.proposalId,
+    support: input.support,
+    voter: input.voterAddress,
+    private_input: { signature: input.signature },
   });
 
   // Virtual transaction: the prover requires a max possible fee of zero, so all gas
@@ -53,7 +65,13 @@ export async function generateProof(
   const nonce = await backend.getNonce(referenceBlock);
   const tx: INVOKE_TXN_V3 = await backend.getSignedTransaction(call, { resourceBounds, tip: 0n, nonce });
   console.log(`Proof reference block: ${referenceBlock} (head - ${REFERENCE_BLOCK_LAG})`);
-  const result = await requestProof(referenceBlock, tx);
+  const result = await requestProof(referenceBlock, tx, {
+    target,
+    deadline: startedAt + VOTE_BUDGET_MS - SUBMISSION_MARGIN_MS,
+    onProgress: emit,
+    signal,
+  });
+  emit({ type: "proved" });
 
   if (!result.l2ToL1Messages[0])
     throw new Error("Proof server returned no L2→L1 message — cannot decode public vote message");
@@ -68,5 +86,5 @@ export async function generateProof(
     proof: result.proof,
     proofFacts: result.proofFacts,
   });
-  return { transaction_hash };
+  return transaction_hash;
 }

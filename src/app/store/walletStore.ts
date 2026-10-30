@@ -1,11 +1,9 @@
 "use client";
 
 import { create } from "zustand";
-import { constants } from "starknet";
 import type { WalletAccountV6, RpcProvider } from "starknet";
 import type { WalletWithStarknetFeatures } from "@starknet-io/get-starknet-wallet-standard/features";
-
-const SN_MAIN = constants.StarknetChainId.SN_MAIN;
+import { isExpectedChain } from "@/app/utils/network";
 
 interface WalletState {
   isConnected: boolean;
@@ -39,7 +37,7 @@ export const useWalletStore = create<WalletState>((set) => ({
 
   setConnected: (v) => set({ isConnected: v }),
   setAddress: (v) => set({ address: v }),
-  setChainId: (v) => set({ chainId: v, wrongNetwork: v !== SN_MAIN }),
+  setChainId: (v) => set({ chainId: v, wrongNetwork: !isExpectedChain(v) }),
   setWalletAccount: (v) => set({ walletAccount: v }),
   setProvider: (v) => set({ provider: v }),
   setWalletWSF: (v) => set({ walletWSF: v }),

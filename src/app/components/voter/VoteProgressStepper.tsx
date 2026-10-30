@@ -1,6 +1,7 @@
 "use client";
 
 import { Box, Text } from "@chakra-ui/react";
+import { NETWORK } from "@/app/utils/network";
 
 export type VoteStep = "idle" | "signing" | "generating" | "submitting" | "done" | "error";
 
@@ -8,6 +9,7 @@ interface Props {
   step: VoteStep;
   errorMessage?: string;
   txHash?: string;
+  queue?: { position: number; etaSec: number };
 }
 
 const STEPS: { key: VoteStep; label: string }[] = [
@@ -19,7 +21,7 @@ const STEPS: { key: VoteStep; label: string }[] = [
 
 const ORDER: VoteStep[] = ["signing", "generating", "submitting", "done"];
 
-export default function VoteProgressStepper({ step, errorMessage, txHash }: Props) {
+export default function VoteProgressStepper({ step, errorMessage, txHash, queue }: Props) {
   if (step === "idle") return null;
 
   return (
@@ -49,7 +51,10 @@ export default function VoteProgressStepper({ step, errorMessage, txHash }: Prop
               mb={1}
               color={done ? "green.400" : active ? "indigo.400" : "gray.600"}
             >
-              {done ? "✓" : active ? "⟳" : "○"} {label}
+              {done ? "✓" : active ? "⟳" : "○"}{" "}
+              {key === "generating" && active && queue
+                ? `Waiting in proof-server queue: position ${queue.position} (~${queue.etaSec} s)`
+                : label}
               {active && "…"}
             </Text>
           );
@@ -59,7 +64,7 @@ export default function VoteProgressStepper({ step, errorMessage, txHash }: Prop
         <Text fontSize="xs" color="gray.400" mt={2}>
           Tx:{" "}
           <a
-            href={`https://starkscan.co/tx/${txHash}`}
+            href={`${NETWORK.explorerTxUrl}${txHash}`}
             target="_blank"
             rel="noreferrer"
             style={{ color: "var(--chakra-colors-indigo-400)", textDecoration: "underline" }}
