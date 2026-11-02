@@ -8,6 +8,7 @@ import VoterBlock from "@/app/components/voter/VoterBlock";
 import NetworkBadge from "@/app/components/network/NetworkBadge";
 import WrongNetworkBanner from "@/app/components/network/WrongNetworkBanner";
 import ConfigBanner from "@/app/components/network/ConfigBanner";
+import LowerBanner from "@/app/components/LowerBanner";
 
 export default function Home() {
   return (
@@ -33,11 +34,13 @@ export default function Home() {
       <ConfigBanner />
       <WrongNetworkBanner />
 
-      <Box maxW="720px" mx="auto" py={4} px={4}>
+      <Box maxW="720px" mx="auto" pt={4} pb={16} px={4}>
         <DelegationPanel />
         <AdminBlock />
         <VoterBlock />
       </Box>
+
+      <LowerBanner />
     </Box>
   );
 }
