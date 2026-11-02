@@ -6,8 +6,8 @@ import type { Sponsor } from "./sponsor";
 
 export type GrantInput = { address: string; nonce: string; expiry: number; signature: string[] };
 
-// Mints the demo tokens to the visitor and delegates them to the visitor with the visitor's signed delegation,
-// in one transaction sent (and paid) by the sponsor. Throws an Error whose message is meant for the visitor.
+// Gives the visitor the grant's voting power with the visitor's signed delegation, in one transaction sent (and paid)
+// by the sponsor. Throws an Error whose message is meant for the visitor.
 export async function grantVotingPower(
   input: GrantInput,
   deps: { provider: RpcProvider; sponsor: Sponsor },
@@ -25,12 +25,15 @@ export async function grantVotingPower(
   }
 
   const token = new Contract({ abi: tokenAbi as Abi, address: TOKEN_ADDRESS, providerOrAccount: provider });
-  if (BigInt(await token.balance_of(input.address)) !== 0n) {
+  if (BigInt(await token.get_votes(input.address)) !== 0n) {
     throw new Error("This address already has its voting power.");
   }
 
+  // Tokens received another way (a transfer) carry no vote until delegated: they are activated, and only what is
+  // missing to reach the grant is minted, so that one visitor's vote still reaches the quorum.
+  const missing = GRANT_AMOUNT - BigInt(await token.balance_of(input.address));
   const calls = [
-    token.populate("mint", { recipient: input.address, amount: GRANT_AMOUNT }),
+    ...(missing > 0n ? [token.populate("mint", { recipient: input.address, amount: missing })] : []),
     token.populate("delegate_by_sig", {
       delegator: input.address,
       delegatee: input.address,

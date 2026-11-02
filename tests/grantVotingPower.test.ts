@@ -13,7 +13,9 @@ const INPUT = { address: VISITOR, nonce: "0x0", expiry: EXPIRY, signature: SIGNA
 const DEPLOYED = { result: "0x387309" };
 const NOT_DEPLOYED = { error: { code: 20, message: "Contract not found" } };
 const NO_TOKENS = { result: ["0x0", "0x0"] };
-const SOME_TOKENS = { result: ["0x5", "0x0"] };
+const NO_VOTES = { result: ["0x0", "0x0"] };
+const SOME_VOTES = { result: ["0x5", "0x0"] };
+const tokens = (amount: bigint) => ({ result: [`0x${amount.toString(16)}`, "0x0"] }); // below 2^128
 
 // The failed fee estimation of a transaction whose delegation signature the token refuses.
 const estimationRefused = () =>
@@ -37,9 +39,9 @@ const estimationRefused = () =>
 
 type RpcReply = Parameters<typeof fakeStarknetNode>[0][string];
 
-function setup(options: { classHash?: RpcReply; balance?: RpcReply; executeError?: unknown } = {}) {
+function setup(options: { classHash?: RpcReply; balance?: RpcReply; votes?: RpcReply; executeError?: unknown } = {}) {
   const node = fakeStarknetNode(
-    { balance_of: options.balance ?? NO_TOKENS },
+    { balance_of: options.balance ?? NO_TOKENS, get_votes: options.votes ?? NO_VOTES },
     { starknet_getClassHashAt: options.classHash ?? DEPLOYED },
   );
   const provider = new RpcProvider({ nodeUrl: "http://node.test", baseFetch: node.fetch });
@@ -68,11 +70,32 @@ describe("grantVotingPower", () => {
     expect(executed).toEqual([]);
   });
 
-  it("refuses an address that already has tokens, and sends nothing", async () => {
-    const { executed, grant } = setup({ balance: SOME_TOKENS });
+  it("refuses an address that already has voting power, and sends nothing", async () => {
+    const { executed, grant } = setup({ votes: SOME_VOTES });
 
     await expect(grant()).rejects.toThrow("This address already has its voting power.");
     expect(executed).toEqual([]);
+  });
+
+  it("activates the tokens an address received another way, without minting", async () => {
+    const { executed, grant } = setup({ balance: tokens(GRANT_AMOUNT) });
+
+    await grant();
+
+    expect(executed).toHaveLength(1);
+    expect(executed[0].map((call) => call.entrypoint)).toEqual(["delegate_by_sig"]);
+  });
+
+  it("mints only what is missing to reach the grant, then activates", async () => {
+    const held = 40_000n * 10n ** 18n;
+    const { executed, grant } = setup({ balance: tokens(held) });
+
+    await grant();
+
+    const [mint, delegate] = executed[0];
+    expect(mint.entrypoint).toBe("mint");
+    expect(felts(mint)).toEqual([BigInt(VISITOR), GRANT_AMOUNT - held, 0n]);
+    expect(delegate.entrypoint).toBe("delegate_by_sig");
   });
 
   it("sends the mint and the delegation by signature in one transaction", async () => {
