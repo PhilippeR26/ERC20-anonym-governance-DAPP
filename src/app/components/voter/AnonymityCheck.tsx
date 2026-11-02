@@ -49,7 +49,7 @@ export default function AnonymityCheck() {
       <Text fontSize="sm" color="gray.400" mt={3}>
         The vote was sent by the sponsor account, not by your wallet, and its event holds only the proposal, a
         nullifier, the choice and the weight: {GRANT_TOKENS} tokens for every visitor who took the grant. Only the
-        grant transaction names your address: the right to vote is public, the vote is not.
+        grant transaction names your address: anyone can see that you may vote, nobody can tell which vote is yours.
       </Text>
     </Box>
   );
