@@ -56,17 +56,17 @@ describe("getProofServerTarget", () => {
     ).toEqual({ url: "https://proof.example/sepolia", apiKey: "s" });
   });
 
-  it("ignores the retired PROOF_SERVER_INSTANCE_URL", () => {
+  it("uses PROOF_SERVER_INSTANCE_URL as is, without the instance path or the key", () => {
     expect(
       getProofServerTarget(
         {
-          PROOF_SERVER_INSTANCE_URL: "http://192.168.1.26:3030",
+          PROOF_SERVER_INSTANCE_URL: "http://localhost:3031/",
           PROOF_SERVER_URL: "https://proof.example",
           PROOF_SERVER_API_KEY: "s",
         },
         SEPOLIA,
       ),
-    ).toEqual({ url: "https://proof.example/sepolia", apiKey: "s" });
+    ).toEqual({ url: "http://localhost:3031" });
   });
 
   it("names PROOF_SERVER_URL when no proof server is configured", () => {
@@ -105,21 +105,18 @@ describe("listConfigProblems", () => {
     expect(listConfigProblems(COMPLETE, SEPOLIA)).toEqual([]);
   });
 
-  it("still requires the proof-server variables when the retired PROOF_SERVER_INSTANCE_URL is set", () => {
+  it("does not require the public proof-server variables when PROOF_SERVER_INSTANCE_URL is set", () => {
     expect(
       listConfigProblems(
         {
           ALCHEMY_API_KEY: "k",
           SEPOLIA_BACKEND_ACCOUNT_ADDRESS: "0xa",
           SEPOLIA_BACKEND_ACCOUNT_PRIVATE_KEY: "0xb",
-          PROOF_SERVER_INSTANCE_URL: "http://192.168.1.26:3030",
+          PROOF_SERVER_INSTANCE_URL: "http://localhost:3031",
         },
         SEPOLIA,
       ),
-    ).toEqual([
-      "PROOF_SERVER_URL is not set (required for network sepolia)",
-      "PROOF_SERVER_API_KEY is not set (required for network sepolia)",
-    ]);
+    ).toEqual([]);
   });
 });
 

@@ -80,7 +80,10 @@ export async function requestProof(
     try {
       response = await fetch(`${target.url}/prove`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${target.apiKey}` },
+        headers: {
+          "Content-Type": "application/json",
+          ...(target.apiKey ? { Authorization: `Bearer ${target.apiKey}` } : {}),
+        },
         body: JSON.stringify({ blockNumber: referenceBlock, tx }),
         signal: controller.signal,
       });

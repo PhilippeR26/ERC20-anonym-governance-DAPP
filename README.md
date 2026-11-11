@@ -277,7 +277,7 @@ The voter's identity never appears on-chain. The choice does, in the public even
 | Public, HTTPS (behind Caddy) | `<PROOF_SERVER_URL>/sepolia`, `<PROOF_SERVER_URL>/mainnet` | `Authorization: Bearer <PROOF_SERVER_API_KEY>`; daily quota per site and per network |
 | Local network | `http://<machine>:<port>`, one port per network | no key, no quota |
 
-The DApp uses the public listener: `PROOF_SERVER_URL` is the base address and the DApp appends the instance path of the active network. The site that owns the API key needs a quota on each network you use; it is created on the proof server (`./proof-server.sh site add ...`). The proof server's address is never shown to visitors (banner, vote errors): it is written to the server log only.
+By default the DApp uses the public listener: `PROOF_SERVER_URL` is the base address and the DApp appends the instance path of the active network. For a local test, `PROOF_SERVER_INSTANCE_URL` (e.g. `http://localhost:3031`) is the full address of one instance on its local-network listener: it is used as is, no key is sent, and `PROOF_SERVER_URL` and `PROOF_SERVER_API_KEY` are ignored. The site that owns the API key needs a quota on each network you use; it is created on the proof server (`./proof-server.sh site add ...`). The proof server's address is never shown to visitors (banner, vote errors): it is written to the server log only.
 
 <details>
 <summary>The proof-server API, as the DApp uses it</summary>
@@ -296,7 +296,7 @@ Authorization: Bearer <key>          (public listener only)
 - A refusal before the stream (quota used up, bad key, server busy…) is a JSON `{ reason, error }`, with a `Retry-After` header when known; the DApp shows it as is.
 - The announced wait only counts the proofs ahead of the vote, not its own proof (about 40–50 s): if the wait plus 60 s exceeds the time left in the vote's budget, the vote stops at once with a clear message.
 - The reference block is the chain head (`REFERENCE_BLOCK_LAG = 0` in `src/app/utils/constants.ts`; raise it if a prover rejects blocks too close to the head).
-- `PROOF_SERVER_API_KEY` is required: a request without a key would only be refused.
+- `PROOF_SERVER_API_KEY` is required with `PROOF_SERVER_URL`: a request without a key would only be refused. It is not read when `PROOF_SERVER_INSTANCE_URL` is set.
 
 </details>
 
